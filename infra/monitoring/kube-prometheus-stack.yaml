@@ -1,0 +1,79 @@
+# Helm-värden för kube-prometheus-stack: Prometheus + Grafana + exporters.
+# Installeras med:
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring -f infra/monitoring/kube-prometheus-stack.yaml
+
+# Vi använder inga larm via Alertmanager än, så den stängs av för att spara minne.
+alertmanager:
+  enabled: false
+
+# k3s kör controller-manager, scheduler, proxy och etcd inbyggt i en process.
+# Prometheus kan inte skrapa dem som separata komponenter, så de stängs av
+# (annars visas de som "down" i Grafana).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 5d
+    retentionSize: 4GB
+    # Plocka upp alla ServiceMonitors i klustret, inte bara de som Helm-releasen skapat.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+grafana:
+  admin:
+    # Secreten skapas manuellt, se infra/monitoring/README.md
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 1Gi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - grafana.riftstats.se
+    tls:
+      - hosts:
+          - grafana.riftstats.se
+        secretName: grafana-tls
+  # Loki som datakälla, så att loggar syns i samma Grafana.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      isDefault: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

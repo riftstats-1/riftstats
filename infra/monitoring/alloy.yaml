@@ -1,0 +1,55 @@
+# Helm-värden för Grafana Alloy: samlar in loggarna från alla podar och skickar dem till Loki.
+# Installeras med:
+#   helm upgrade --install alloy grafana/alloy -n monitoring -f infra/monitoring/alloy.yaml
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  configMap:
+    content: |
+      // Hitta alla podar i klustret
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // Sätt etiketter som går att filtrera på i Grafana
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      // Läs loggarna via Kubernetes API
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      // Skicka till Loki
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
