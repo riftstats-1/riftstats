@@ -1,0 +1,21 @@
+# Node
+node_modules/
+dist/
+*.log
+
+# Rust
+target/
+
+# Miljö och hemligheter
+.env
+.env.*
+!.env.example
+*.pem
+*-deploy
+*-deploy.pub
+
+# Editor och OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
