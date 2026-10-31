@@ -1,10 +1,10 @@
 # RiftStats
 
-En lightweight statistikapp för League of Legends, i stil med Mobalytics och Blitz. Sök på ett Riot ID och se rank, matchhistorik, champion-statistik och mastery.
+En lightweight statistikapp för League of Legends, i stil med Mobalytics och Blitz. Sök på ett Riot ID och se rank, matchhistorik och champion-statistik.
 
-Projektet är byggt som examination i en fullstack-kurs och körs på en egen VPS med k3s, CI/CD, tester, backups och monitoring.
+Appen är ett **skrivbordsprogram byggt med Tauri** (Rust + React/TypeScript). Den använder operativsystemets inbyggda webview istället för att packa med Chromium som Electron gör, så installationsfilen blir några MB istället för hundratals. Backend är ett Fastify-API som körs på en egen VPS med k3s, CI/CD, tester, backups och monitoring.
 
-> **Arkitekturbeslut:** Fastify (TypeScript) är det publika API:t. En Rust-worker sköter all kommunikation med Riot API. Motiveringen finns i [Tekniska val](#tekniska-val).
+Projektet är byggt som examination i en fullstack-kurs.
 
 ---
 
@@ -12,9 +12,9 @@ Projektet är byggt som examination i en fullstack-kurs och körs på en egen VP
 
 | Tjänst | URL |
 |---|---|
-| Webbapp | https://riftstats.se |
+| Nedladdningssida | https://riftstats.se |
 | API | https://api.riftstats.se |
-| CDN (statiska filer) | https://cdn.riftstats.se |
+| CDN (installationsfil och bilder) | https://cdn.riftstats.se |
 | Dashboard (Grafana) | https://grafana.riftstats.se |
 
 Inloggning till Grafana delas separat med examinator.
@@ -38,7 +38,7 @@ Inloggning till Grafana delas separat med examinator.
 13. [VG: skalning och deploy utan downtime](#vg-skalning-och-deploy-utan-downtime)
 14. [Runbook: när något går fel](#runbook-när-något-går-fel)
 15. [Lokal utveckling](#lokal-utveckling)
-16. [Miljövariabler](#miljövariabler)
+16. [Miljövariabler och secrets](#miljövariabler-och-secrets)
 
 ---
 
@@ -55,7 +55,8 @@ Inloggning till Grafana delas separat med examinator.
 **Om tid finns**
 - Champion mastery (topp 5).
 - Live game via spectator-v5.
-- Guldkurva från match-timeline.
+- Automatiska uppdateringar av appen via Tauris updater-plugin.
+- Mac-version (`.dmg`) i pipelinen.
 
 ---
 
@@ -63,39 +64,43 @@ Inloggning till Grafana delas separat med examinator.
 
 ```mermaid
 flowchart LR
-    U[Användare] -->|HTTPS| T[Traefik ingress<br/>k3s load balancer]
-    T -->|riftstats.se / cdn.| N[nginx<br/>statiska filer]
+    D[Tauri-app<br/>på användarens dator] -->|HTTPS| T[Traefik ingress<br/>k3s load balancer]
+    B[Webbläsare] -->|HTTPS| T
+    T -->|riftstats.se / cdn.| N[nginx<br/>nedladdningssida, installationsfil, bilder]
     T -->|api.| A1[Fastify API #1]
     T -->|api.| A2[Fastify API #2..n]
     A1 --> P[(Postgres)]
     A2 --> P
-    W[Rust worker] -->|plockar jobb| P
-    W -->|rate-limitade anrop| R[Riot API]
-    P -.->|pg_dump nattligen| S3[(S3-lagring)]
-    A1 & A2 & W -.->|/metrics| PR[Prometheus]
-    A1 & A2 & W -.->|stdout| L[Loki]
+    F[Fastify fetcher<br/>1 replika] -->|plockar jobb| P
+    F -->|rate-limitade anrop| R[Riot API]
+    P -.->|pg_dump nattligen| S3[(Cloudflare R2)]
+    A1 & A2 & F -.->|metrics| PR[Prometheus]
+    A1 & A2 & F -.->|stdout| L[Alloy → Loki]
     PR --> G[Grafana]
     L --> G
 ```
 
 ### Vägen från request till databas
 
-1. Webbläsaren laddar `index.html` från `riftstats.se`. JS, CSS och bilder hämtas från `cdn.riftstats.se`.
-2. React-appen anropar `https://api.riftstats.se/v1/...`.
-3. DNS pekar på VPS:en. Traefik terminerar TLS (certifikat från Let's Encrypt via cert-manager) och routar på host-header till `api`-servicen.
-4. Kubernetes-servicen lastbalanserar till en av Fastify-podarna.
+1. Användaren laddar ner installationsfilen från `cdn.riftstats.se` och installerar appen. Gränssnittet (React, kompilerat från TypeScript till JS) ligger inbakat i appen.
+2. Användaren söker på ett Riot ID. Appen anropar `https://api.riftstats.se/v1/...`. Champion-bilder hämtas från `cdn.riftstats.se`.
+3. DNS (Cloudflare, DNS only) pekar på VPS:en. Traefik terminerar TLS med ett certifikat från Let's Encrypt via cert-manager och routar på host-header till `api`-servicen.
+4. Kubernetes-servicen lastbalanserar till en av API-podarna.
 5. Fastify validerar requesten med JSON Schema, läser från Postgres och svarar.
-6. Finns spelaren inte i databasen skapar Fastify ett jobb i tabellen `fetch_jobs` och svarar `202 Accepted` med ett jobb-ID. Frontend pollar `/v1/jobs/:id`.
-7. Rust-workern plockar jobbet (`SELECT ... FOR UPDATE SKIP LOCKED`), hämtar data från Riot inom rate limiten, skriver till Postgres och markerar jobbet som klart.
+6. Finns spelaren inte i databasen skapar API:t ett jobb i tabellen `fetch_jobs` och svarar `202 Accepted` med ett jobb-ID. Appen pollar `/v1/jobs/:id`.
+7. Fetchern plockar jobbet (`SELECT ... FOR UPDATE SKIP LOCKED`), hämtar data från Riot inom rate limiten, skriver till Postgres och markerar jobbet som klart.
+
+Riot-nyckeln finns bara i backend. Appen anropar aldrig Riot direkt, eftersom nyckeln då skulle gå att plocka ut ur installationsfilen.
 
 ### Vägen från merge till deploy
 
 1. En pull request mergas till `main`.
-2. GitHub Actions kör lint, unit-, integrations- och e2e-tester.
-3. Docker-images för `api`, `worker` och `web` byggs och taggas med commit-SHA, och pushas till GitHub Container Registry.
-4. Pipelinen uppdaterar deployments i k3s med den nya image-taggen.
+2. GitHub Actions kör typecheck och tester.
+3. Docker-imagen för API:t byggs, taggas med commit-SHA och pushas till GitHub Container Registry (`ghcr.io/riftstats-1/riftstats-api`).
+4. Pipelinen ansluter till servern med SSH, sätter in den nya image-taggen i manifesten och kör `kubectl apply`.
 5. Kubernetes gör en rolling update. Nya podar måste klara readiness-proben innan gamla tas bort.
-6. Pipelinen väntar på `kubectl rollout status` och kör ett smoke test mot `https://api.riftstats.se/health`. Misslyckas det görs `kubectl rollout undo`.
+6. Pipelinen väntar på `kubectl rollout status` och kör ett smoke test mot `https://api.riftstats.se/health`. Misslyckas något görs `kubectl rollout undo`.
+7. Ett separat jobb bygger Tauri-appen på en Windows-runner och laddar upp installationsfilen till CDN:en. *(planerat)*
 
 ---
 
@@ -103,14 +108,16 @@ flowchart LR
 
 | Val | Varför |
 |---|---|
-| **Fastify (TypeScript)** för API:t | Snabbt, inbyggd schema-validering, samma språk som frontend så typer kan delas via `packages/types`. |
-| **Rust (tokio, reqwest, sqlx)** för workern | Långlivad process med mycket JSON-parsning och strikt rate limiting. Låg minnesanvändning, och kompilatorn fångar fel i Riot-datamodellerna. |
-| **Postgres** | Relationsdata (spelare, matcher, deltagare) plus `jsonb` för rå matchdata. Används även som jobbkö, så vi slipper Redis. |
-| **Kö i Postgres** | `FOR UPDATE SKIP LOCKED` räcker för vår volym och är en komponent mindre att drifta och backa upp. |
-| **En worker-replika** | Riots rate limit gäller per nyckel. Flera workers skulle bara konkurrera om samma kvot. |
-| **React + TypeScript + Vite** | Statiskt bygge som kan serveras från CDN. TanStack Query sköter cachning och polling. |
-| **k3s** | Lättviktig Kubernetes för en enda VPS. Ger ingress, load balancing, rolling updates och HPA. |
-| **Prometheus + Loki + Grafana** | Standardstack, en dashboard för både metrics och loggar. |
+| **Tauri** för klienten | Litet och snabbt jämfört med Electron (några MB istället för 100+), säkert som standard eftersom gränssnittet bara kommer åt de Rust-kommandon som uttryckligen tillåts. Samma React-kod som en webbapp. |
+| **React + TypeScript + Vite** | Typat gränssnitt, snabbt bygge. TanStack Query sköter cachning och polling av jobb. |
+| **Fastify (TypeScript)** för backend | Snabbt, inbyggd schema-validering, samma språk som klienten så typer kan delas. |
+| **Samma image för API och fetcher** | En kodbas och en image. API:t körs i 2–6 replikor, fetchern i exakt en, styrt med en miljövariabel. Ett backend-språk sparar tid jämfört med en separat Rust-worker. |
+| **En fetcher-replika** | Riots rate limit gäller per nyckel. Flera fetchers skulle bara konkurrera om samma kvot. |
+| **Postgres** | Relationsdata (spelare, matcher, deltagare) plus `jsonb` för rå matchdata. Används även som jobbkö. |
+| **Kö i Postgres** | `FOR UPDATE SKIP LOCKED` räcker för vår volym och är en komponent mindre att drifta och backa upp än Redis. |
+| **k3s** | Lättviktig Kubernetes för en enda VPS. Ger ingress, load balancing, rolling updates och autoscaling (HPA). |
+| **Prometheus + Loki + Grafana** | Standardstack: metrics och loggar i samma dashboard. |
+| **Cloudflare R2** för backups | S3-kompatibelt och hos en annan leverantör än servern, så backuperna överlever om VPS:en går förlorad. |
 
 ---
 
@@ -119,23 +126,16 @@ flowchart LR
 ```
 .
 ├── apps/
-│   ├── web/              # React + TypeScript + Vite
-│   ├── api/              # Fastify (TypeScript)
-│   └── worker/           # Rust-worker (Cargo-projekt)
-├── packages/
-│   └── types/            # Delade TypeScript-typer och JSON Schemas
-├── db/
-│   └── migrations/       # SQL-migrationer (körs av sqlx migrate)
+│   ├── api/              # Fastify (TypeScript): API och fetcher
+│   └── desktop/          # Tauri-app (Rust + React + TypeScript)
 ├── infra/
-│   ├── k8s/              # Kubernetes-manifest (deployments, services, ingress, HPA, CronJob)
-│   ├── monitoring/       # Grafana-dashboards (JSON) och Helm-values
-│   └── scripts/          # Bootstrap av VPS, restore-script
+│   ├── k8s/              # Kubernetes-manifest (api, postgres, backup)
+│   ├── monitoring/       # Helm-värden för Prometheus, Grafana, Loki, Alloy + guide
+│   └── scripts/          # restore.sh
 ├── tests/
 │   ├── e2e/              # Playwright
-│   ├── load/             # k6-skript
-│   └── riot-mock/        # Mock-server för Riot API med fixtures
+│   └── load/             # k6-skript
 ├── .github/workflows/    # CI/CD
-├── docker-compose.yml    # Lokal utveckling
 └── README.md
 ```
 
@@ -227,7 +227,7 @@ Matcher ändras aldrig efter att de spelats. De hämtas en gång och läses seda
 
 ## Riot API-integration
 
-All kommunikation med Riot sker i `apps/worker`. API:t anropar aldrig Riot direkt.
+All kommunikation med Riot sker i fetchern. API-podarna anropar aldrig Riot direkt.
 
 **Endpoints som används**
 
@@ -246,19 +246,15 @@ Routing-mappning: `euw1`/`eun1` → `europe`, `na1` → `americas`, `kr` → `as
 
 Personal API key: 20 anrop per sekund och 100 anrop per 2 minuter, per region.
 
-- Workern använder en token bucket (`governor`) med båda fönstren, med lite marginal.
-- Vid `429` läses headern `Retry-After` och workern väntar innan nästa anrop.
+- Fetchern håller båda fönstren med lite marginal (18 / 90).
+- Vid `429` läses headern `Retry-After` och fetchern väntar innan nästa anrop.
 - Vid `5xx` görs omförsök med exponentiell backoff, max 3 gånger. Därefter markeras jobbet som `failed`.
 - Bara match-ID:n som saknas i `matches` hämtas.
 - En ny spelare med 20 matcher kostar ungefär 24 anrop.
 
-**API-nyckel**
-
-Nyckeln ligger som Kubernetes-secret (`riot-api-key`) och som GitHub-secret. Den checkas aldrig in och loggas aldrig.
-
 **Statiska assets**
 
-Champion-, item-, rune- och spell-bilder hämtas från Data Dragon i ett steg i pipelinen och serveras från `cdn.riftstats.se`. Det belastar inte rate limiten.
+Champion-, item-, rune- och spell-bilder hämtas från Riots Data Dragon och serveras från `cdn.riftstats.se`. Det belastar inte rate limiten.
 
 ---
 
@@ -266,128 +262,119 @@ Champion-, item-, rune- och spell-bilder hämtas från Data Dragon i ett steg i 
 
 | Nivå | Verktyg | Vad testas |
 |---|---|---|
-| Unit (Rust) | `cargo test` | Parsning av Riot-svar mot sparade fixtures, rate limiter, routing-mappning, beräkning av stats. |
-| Unit (API) | Vitest | Validering, felhantering, aggregering av champion-stats. |
-| Unit (web) | Vitest + Testing Library | Komponenter som matchkort och rank-badge, formatering av KDA och tid. |
-| Integration (API) | Vitest + riktig Postgres | Endpoints mot en testdatabas med seed-data (Postgres som service-container i CI). |
-| Integration (worker) | `#[sqlx::test]` + `wiremock` | Hela flödet jobb → Riot-mock → databas, inklusive 429-hantering. |
-| E2E | Playwright | Sök spelare → vänta på jobb → se profil och matchhistorik → öppna match. Hela stacken körs med docker compose mot `riot-mock`. |
+| Unit (API) | Vitest | Endpoints via `app.inject()`, validering, felhantering, stats-beräkningar, routing-mappning. |
+| Unit (desktop) | Vitest + Testing Library | Komponenter som matchkort och rank-badge, formatering av KDA och tid. |
+| Integration (API) | Vitest + riktig Postgres | Endpoints mot en testdatabas (Postgres som service-container i CI). Fetchern mot en mockad Riot-server, inklusive 429-hantering. |
+| E2E | Playwright | Gränssnittet körs i webbläsaren mot API:t med mockad Riot: sök spelare → vänta på jobb → se profil och matchhistorik. |
 | Last | k6 | Används för VG-demon av autoscaling. Körs inte i pipelinen. |
 
-Riot API anropas **aldrig** i testerna. Fixtures ligger i `tests/riot-mock/fixtures/`.
+Riot API anropas **aldrig** i testerna.
 
 ```bash
-# Allt lokalt
-docker compose up -d postgres riot-mock
-pnpm test                      # unit och integration för api och web
-cargo test --manifest-path apps/worker/Cargo.toml
-pnpm e2e                       # Playwright
+cd apps/api
+npm test
 ```
 
 ---
 
 ## CI/CD
 
-GitHub Actions, `.github/workflows/`.
+GitHub Actions, `.github/workflows/ci-cd.yml`.
 
-**`ci.yml` körs på varje pull request**
-1. Lint och typecheck (`eslint`, `tsc`, `cargo clippy`, `cargo fmt --check`).
-2. Unit- och integrationstester (Postgres som service).
-3. Bygg alla images för att verifiera att bygget fungerar.
-4. E2E med docker compose.
+| Jobb | Körs | Gör |
+|---|---|---|
+| Test API | varje pull request och push | `npm ci`, typecheck, tester |
+| Build and push image | push till `main` | bygger Docker-imagen och pushar till GHCR med taggarna `<sha>` och `latest` |
+| Deploy to k3s | push till `main` | SSH till servern, `kubectl apply` av `api.yaml`, `postgres.yaml` och `backup.yaml`, väntar på rollout, smoke test, rollback vid fel |
+| Build desktop | push till `main` *(planerat)* | bygger Tauri-installationsfilen på Windows och laddar upp till CDN:en |
 
-**`deploy.yml` körs på push till `main`**
-1. Samma tester som ovan. Ingen deploy om något fallerar.
-2. Bygg och pusha images till `ghcr.io/riftstats-1/riftstats-{api,worker,web}:<sha>`.
-3. Kör databasmigrationer som ett Kubernetes-Job.
-4. `kubectl set image` för `api`, `worker` och `web`.
-5. `kubectl rollout status` med timeout.
-6. Smoke test mot `https://api.riftstats.se/health`. Vid fel: `kubectl rollout undo`.
+**Secrets i GitHub:** `SSH_HOST`, `SSH_PRIVATE_KEY` (en separat deploy-nyckel utan lösenord), `SSH_KNOWN_HOSTS`. Image-pushen använder den inbyggda `GITHUB_TOKEN`.
 
-**Secrets i GitHub:** `KUBECONFIG` (base64), `RIOT_API_KEY`, `GHCR_TOKEN`.
-
-Branch protection på `main`: PR krävs och CI måste vara grön.
+Branch protection på `main`: pull request krävs och testerna måste vara gröna.
 
 ---
 
 ## Infrastruktur
 
-**VPS:** minst 4 vCPU och 8 GB RAM rekommenderas (k3s, Postgres, Prometheus, Loki och Grafana kräver tillsammans runt 4 GB).
+**VPS:** Contabo, 6 vCPU, 12 GB RAM, Ubuntu 24.04, en nod.
 
-**DNS:** A-poster för `riftstats.se`, `api`, `cdn` och `grafana` pekar på VPS:ens IP.
+**DNS:** Cloudflare (DNS only). A-poster för `riftstats.se`, `api`, `cdn` och `grafana` pekar på VPS:ens IP. Domänen är registrerad hos Loopia.
+
+**Säkerhet:** Inloggning endast med SSH-nyckel, root-inloggning avstängd, en egen användare per gruppmedlem. Brandvägg (ufw): bara 22, 80 och 443 öppna.
 
 **Kluster (k3s)**
 
-| Resurs | Detalj |
-|---|---|
-| Ingress | Traefik (ingår i k3s) |
-| TLS | cert-manager + Let's Encrypt, ClusterIssuer `letsencrypt-prod` |
-| `api` | Deployment, 2–6 replikor, HPA |
-| `worker` | Deployment, 1 replika, strategy `Recreate` |
-| `web` | nginx som serverar Vite-bygget och Data Dragon-assets på `riftstats.se` och `cdn.riftstats.se`. Vite byggs med `base: "https://cdn.riftstats.se/"`. |
-| `postgres` | StatefulSet med PersistentVolume (local-path) |
-| `pg-backup` | CronJob, nattlig dump till S3 |
-| Monitoring | `kube-prometheus-stack` och `loki-stack` via Helm |
+| Resurs | Namespace | Detalj |
+|---|---|---|
+| Ingress | kube-system | Traefik (ingår i k3s) |
+| TLS | cert-manager | cert-manager + Let's Encrypt, ClusterIssuer `letsencrypt-prod` |
+| `api` | riftstats | Deployment, 2–6 replikor via HPA |
+| `fetcher` | riftstats | Deployment, 1 replika, strategy `Recreate` *(planerat)* |
+| `web` | riftstats | nginx med nedladdningssida, installationsfil och bilder på `riftstats.se` och `cdn.riftstats.se` *(planerat)* |
+| `postgres` | riftstats | StatefulSet, Postgres 17, 10 GB disk (local-path) |
+| `pg-backup` | riftstats | CronJob, nattlig dump till R2 |
+| Monitoring | monitoring | kube-prometheus-stack, Loki och Alloy via Helm |
 
-Brandvägg (ufw): bara 22, 80 och 443 öppna. SSH endast med nyckel.
-
-Bootstrap av en ny server beskrivs i `infra/scripts/bootstrap.sh`.
+**En nod, en avvägning:** Flera podar skyddar mot att en process kraschar och gör deploy utan downtime möjlig, men inte mot att servern går ner. Skyddet mot det är backuperna i R2, hos en annan leverantör, och att klustret kan sättas upp igen från manifesten i repot.
 
 ---
 
 ## Backups
 
-- **När:** varje natt kl. 03:00, CronJob `pg-backup`.
-- **Hur:** `pg_dump -Fc` → gzip → upload till S3-kompatibel lagring (`s3://riftstats-backups/YYYY/MM/DD.dump.gz`).
-- **Retention:** 14 dagar via lifecycle-regel i bucketen.
-- **Övervakning:** jobbet pushar `backup_last_success_timestamp` till Prometheus. Grafana visar senaste lyckade backup och larmar om den är äldre än 26 timmar.
+- **När:** varje natt kl. 03:00 svensk tid, CronJob `pg-backup`.
+- **Hur:** `pg_dump -Fc` (komprimerat) i en initContainer, sedan laddar aws-cli upp filen till Cloudflare R2 som `postgres/YYYY/MM/DD-HHMM.dump` (UTC).
+- **Retention:** 14 dagar via en lifecycle-regel i bucketen `riftstats-backups`.
+- **Övervakning:** Grafana visar när senaste backupen lyckades (`kube_cronjob_status_last_successful_time`).
+
+**Kör en backup direkt**
+
+```bash
+kubectl create job --from=cronjob/pg-backup pg-backup-manual -n riftstats
+kubectl logs -n riftstats -l job-name=pg-backup-manual -c upload -f
+```
 
 **Restore**
 
 ```bash
-./infra/scripts/restore.sh 2026/11/03.dump.gz
-# Laddar ner dumpen, skalar ner api och worker,
-# kör pg_restore --clean och skalar upp igen.
+./infra/scripts/restore.sh                                  # listar backuperna i R2
+./infra/scripts/restore.sh postgres/2026/11/03-0200.dump    # återställer en backup
 ```
 
-Restore har testats mot en separat databas. Testa igen inför försvaret.
+Scriptet skalar ner API:t, hämtar dumpen från R2, kör `pg_restore --clean` och skalar upp API:t igen.
 
 ---
 
 ## Metrics och logging
 
-**Grafana:** https://grafana.riftstats.se
+**Grafana:** https://grafana.riftstats.se. Installation och felsökning beskrivs i [`infra/monitoring/README.md`](infra/monitoring/README.md).
 
 **Metrics (Prometheus)**
-- API: requests per sekund, p50/p95/p99-latens, felfrekvens per route (`fastify-metrics`).
-- Worker: Riot-anrop per endpoint, antal `429`, kölängd, jobbtid (`prometheus`-craten).
-- Kluster: antal podar per deployment, CPU och minne, HPA-status.
-- Backup: tid sedan senaste lyckade backup.
+- Kluster och server: CPU och minne per pod och nod, antal podar per deployment, HPA-status, omstarter (node-exporter och kube-state-metrics).
+- Backup: tid sedan senaste lyckade körning.
+- API: requests per sekund, latens och felfrekvens per route via `/metrics`. *(planerat)*
 
 **Loggar (Loki)**
-- API loggar JSON via pino. Worker loggar JSON via `tracing-subscriber`.
-- Varje request får ett `requestId` som följer med till jobbet i workern, så en sökning kan spåras från request till Riot-anrop.
+- Alloy läser stdout från alla podar och skickar till Loki, med etiketterna `namespace`, `pod`, `container` och `app`.
+- API:t loggar JSON via Fastifys inbyggda logger (pino).
 
 **Dashboard "RiftStats overview"** (`infra/monitoring/dashboards/overview.json`)
-1. Request rate och felfrekvens
-2. Latens p95
-3. Antal API-podar (visar autoscaling)
-4. CPU per pod
-5. Riot-anrop och 429:or
-6. Kölängd
-7. Senaste backup
-8. Loggpanel med filter på nivå och tjänst
+1. Antal API-podar (visar autoscaling)
+2. CPU och minne per pod
+3. Request rate, felfrekvens och latens
+4. Pod-omstarter
+5. Senaste backup
+6. Loggpanel för API:t
 
 ---
 
 ## VG: skalning och deploy utan downtime
 
 **Minst två instanser bakom load balancer**
-`api` har minst 2 replikor. Traefik och Kubernetes-servicen fördelar trafiken.
+`api` har minst 2 replikor. Traefik och Kubernetes-servicen fördelar trafiken mellan dem.
 
 **Deploy utan downtime**
 - `strategy: RollingUpdate`, `maxUnavailable: 0`, `maxSurge: 1`.
-- Readiness probe på `/ready`. En pod får trafik först när den nått databasen.
+- Readiness probe på `/ready`. En pod får trafik först när den är redo.
 - Fastify stänger ner graciöst vid SIGTERM: slutar ta emot nya anslutningar och avslutar pågående requests.
 - `preStop: sleep 5` så att podden hinner tas bort från load balancern innan den stängs.
 - PodDisruptionBudget med `minAvailable: 1`.
@@ -403,12 +390,12 @@ Restore har testats mot en separat databas. Testa igen inför försvaret.
 k6 run tests/load/spike.js
 
 # Terminal 2: se skalningen
-kubectl get hpa api -w
+kubectl get hpa api -n riftstats -w
 
 # Under lasten: merga en ändring och visa att k6 inte rapporterar några misslyckade requests
 ```
 
-I Grafana syns antalet podar öka under last och minska efter några minuter. Error rate ligger kvar på 0 under deployen.
+I Grafana syns antalet podar öka under last och minska efter några minuter. Felfrekvensen ligger kvar på 0 under deployen.
 
 ---
 
@@ -416,48 +403,66 @@ I Grafana syns antalet podar öka under last och minska efter några minuter. Er
 
 | Symptom | Första steg |
 |---|---|
-| API svarar inte | `kubectl get pods`, `kubectl logs deploy/api`, kolla Grafana. Ingress? `kubectl get ingress`. |
-| Ny version är trasig | `kubectl rollout undo deployment/api`. Revertera committen och merga. |
-| Många 429 från Riot | Kolla kölängd och 429-panelen. Workern backar av automatiskt. Sänk takten i konfigurationen vid behov. |
-| Riot-nyckeln fungerar inte | Byt secret: `kubectl create secret generic riot-api-key --from-literal=key=... --dry-run=client -o yaml \| kubectl apply -f -`, starta om workern. |
-| Databasen är nere | `kubectl describe pod postgres-0`, kolla diskutrymme. API:ts readiness faller och podarna tas ur rotation. |
+| API svarar inte | `kubectl get pods -n riftstats`, `kubectl logs -n riftstats deploy/api`, kolla Grafana. Ingress: `kubectl get ingress -n riftstats`. |
+| Ny version är trasig | Pipelinen rullar tillbaka automatiskt. Manuellt: `kubectl -n riftstats rollout undo deployment/api`. Revertera committen och merga. |
+| Podar i `ImagePullBackOff` | Kontrollera att paketet `riftstats-api` i GHCR är publikt och att taggen finns. |
+| Deploy fastnar med "exceeded its progress deadline" | `kubectl -n riftstats rollout restart deployment/api` när orsaken är åtgärdad. |
+| Många 429 från Riot | Fetchern backar av automatiskt. Kolla kölängden. Sänk takten via miljövariabler vid behov. |
+| Riot-nyckeln fungerar inte | Byt secret: `kubectl create secret generic riot-api-key -n riftstats --from-literal=key=... --dry-run=client -o yaml \| kubectl apply -f -`, starta om fetchern. |
+| Databasen är nere | `kubectl describe pod postgres-0 -n riftstats`, kolla disk med `df -h`. API:ts readiness faller och podarna tas ur rotation. |
 | Data förstörd | Återställ från backup med `restore.sh`. |
-| Certifikat har gått ut | `kubectl describe certificate`, kolla cert-manager-loggar. |
-| Disken full | `df -h`, rensa gamla images (`k3s crictl rmi --prune`), kolla Loki-retention. |
+| Backupen har inte körts | `kubectl get cronjob,jobs -n riftstats`, `kubectl logs -n riftstats job/<namn> -c upload`. Kontrollera secreten `r2-credentials`. |
+| Certifikat har gått ut | `kubectl get certificate -A`, `kubectl describe certificate <namn> -n <namespace>`, kolla cert-manager-loggar. |
+| Disken full | `df -h`, rensa gamla images med `sudo k3s crictl rmi --prune`, kolla retention i Prometheus och Loki. |
+| Servern borta | Ny VPS, installera k3s och cert-manager, skapa secrets, kör pipelinen, återställ databasen från R2 med `restore.sh`. |
 
 ---
 
 ## Lokal utveckling
 
-Krav: Node 22, pnpm, Rust (stable), Docker.
+Krav: Node 22, Git. För desktop-appen även Rust (rustup) och Microsoft C++ Build Tools.
+
+**API**
 
 ```bash
-cp .env.example .env               # fyll i RIOT_API_KEY
-docker compose up -d postgres
-pnpm install
-pnpm --filter api migrate
-pnpm --filter api dev              # http://localhost:3000
-cargo run --manifest-path apps/worker/Cargo.toml
-pnpm --filter web dev              # http://localhost:5173
+cd apps/api
+npm install
+npm test
+npm run dev              # http://localhost:3000
 ```
 
-Utan en riktig nyckel: starta `riot-mock` och sätt `RIOT_BASE_URL=http://localhost:4010`.
+**Desktop-app**
+
+```bash
+cd apps/desktop
+npm install
+npm run tauri dev        # öppnar appen med hot reload
+npm run tauri build      # bygger installationsfilen
+```
 
 ---
 
-## Miljövariabler
+## Miljövariabler och secrets
+
+**Miljövariabler**
 
 | Variabel | Tjänst | Beskrivning |
 |---|---|---|
-| `DATABASE_URL` | api, worker | Postgres-anslutning |
-| `RIOT_API_KEY` | worker | Riot-nyckel (secret) |
-| `RIOT_BASE_URL` | worker | Överskriv för mock i test |
-| `RIOT_RATE_PER_SEC` / `RIOT_RATE_PER_2MIN` | worker | Rate limit, standard 18 / 90 |
 | `PORT` | api | Standard 3000 |
-| `LOG_LEVEL` | api, worker | `info` i produktion |
-| `CORS_ORIGIN` | api | `https://riftstats.se` |
-| `VITE_API_URL` | web (build) | `https://api.riftstats.se` |
-| `S3_BUCKET`, `S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | pg-backup | Backup-lagring |
+| `LOG_LEVEL` | api | `info` i produktion |
+| `DATABASE_URL` | api, fetcher | Postgres-anslutning *(planerat)* |
+| `MODE` | api, fetcher | `api` eller `fetcher`, styr vilken roll processen har *(planerat)* |
+| `RIOT_RATE_PER_SEC` / `RIOT_RATE_PER_2MIN` | fetcher | Rate limit, standard 18 / 90 *(planerat)* |
+| `VITE_API_URL` | desktop (build) | `https://api.riftstats.se` |
+
+**Kubernetes-secrets** (skapas manuellt på servern, checkas aldrig in)
+
+| Secret | Namespace | Innehåll |
+|---|---|---|
+| `postgres-credentials` | riftstats | `password` |
+| `r2-credentials` | riftstats | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_BUCKET` |
+| `riot-api-key` | riftstats | `key` *(planerat)* |
+| `grafana-admin` | monitoring | `admin-user`, `admin-password` |
 
 ---
 
@@ -465,8 +470,9 @@ Utan en riktig nyckel: starta `riot-mock` och sätt `RIOT_BASE_URL=http://localh
 
 | Namn | Huvudansvar |
 |---|---|
-| … | … |
-| … | … |
+| … | Infrastruktur, CI/CD, backups |
+| Mehdi | Monitoring |
+| … | API och Riot-integration |
 
 Alla i gruppen ska kunna förklara hela lösningen.
 
