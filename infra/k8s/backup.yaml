@@ -1,0 +1,69 @@
+# Nattlig backup av databasen till Cloudflare R2 (S3-kompatibel lagring).
+# Steg 1 (initContainer): pg_dump till en tillfällig volym.
+# Steg 2: aws-cli laddar upp dumpen till R2.
+# Uppgifterna till R2 ligger i secreten "r2-credentials", som skapas manuellt.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-backup
+  namespace: riftstats
+spec:
+  schedule: "0 3 * * *"
+  timeZone: Europe/Stockholm
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels: { app: pg-backup }
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: dump
+              emptyDir: {}
+          initContainers:
+            - name: dump
+              image: postgres:17-alpine
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGUSER
+                  value: riftstats
+                - name: PGDATABASE
+                  value: riftstats
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: password
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -e
+                  pg_dump -Fc -f /dump/riftstats.dump
+                  ls -lh /dump/riftstats.dump
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2.17.0
+              envFrom:
+                - secretRef:
+                    name: r2-credentials
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: auto
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -e
+                  KEY="postgres/$(date -u +%Y/%m/%d-%H%M).dump"
+                  aws s3 cp /dump/riftstats.dump "s3://${S3_BUCKET}/${KEY}" --endpoint-url "${S3_ENDPOINT}"
+                  echo "Backup uppladdad: ${KEY}"
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump

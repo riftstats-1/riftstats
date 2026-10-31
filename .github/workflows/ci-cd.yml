@@ -79,8 +79,13 @@ jobs:
         env:
           TARGET: deploy@${{ secrets.SSH_HOST }}
         run: |
-          sed "s|IMAGE_PLACEHOLDER|${IMAGE}:${GITHUB_SHA}|" infra/k8s/api.yaml \
-            | ssh "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
+          {
+            sed "s|IMAGE_PLACEHOLDER|${IMAGE}:${GITHUB_SHA}|" infra/k8s/api.yaml
+            echo '---'
+            cat infra/k8s/postgres.yaml
+            echo '---'
+            cat infra/k8s/backup.yaml
+          } | ssh "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
                 kubectl apply -f - &&
                 kubectl -n riftstats rollout status deployment/api --timeout=180s'
 
