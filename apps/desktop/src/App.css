@@ -1,0 +1,765 @@
+/* RiftStats: the Rift theme.
+   Deep river blue, teal for victory, rose for defeat, each rank in its own color.
+   Ripples in the background, glowing form bars, KDA shown as loot quality. */
+
+:root {
+  --rift: #0b1822;
+  --rift-deep: #07111a;
+  --rift-raised: #11222f;
+  --rift-line: #1f3647;
+  --foam: #e3ecf1;
+  --mist: #8ea4b4;
+  --win: #3fd0b8;
+  --loss: #e06a85;
+  --brass: #d4ae63;
+
+  /* Loot quality */
+  --q-poor: #7d8b96;
+  --q-common: #e3ecf1;
+  --q-uncommon: #5fd47a;
+  --q-rare: #4fa3ff;
+  --q-epic: #b77cff;
+  --q-legendary: #ffa23d;
+
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  color-scheme: dark;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--foam);
+  background: var(--rift-deep);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--rift-deep);
+}
+
+p,
+h1,
+h2 {
+  margin: 0;
+}
+
+img {
+  display: block;
+}
+
+.muted {
+  color: var(--mist);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:focus-visible {
+  outline: 2px solid var(--win);
+  outline-offset: 2px;
+}
+
+/* Layout and background: river glow plus ripples fading out from the top left */
+
+.app {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  background:
+    radial-gradient(900px 500px at 10% -10%, rgba(63, 208, 184, 0.14), transparent 65%),
+    radial-gradient(700px 500px at 100% 0%, rgba(79, 163, 255, 0.08), transparent 70%),
+    linear-gradient(180deg, var(--rift) 0%, var(--rift-deep) 70%);
+}
+
+.app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: repeating-radial-gradient(
+    circle at 8% -6%,
+    transparent 0 46px,
+    rgba(63, 208, 184, 0.07) 46px 47px
+  );
+  mask-image: radial-gradient(circle at 8% -6%, #000 0%, transparent 55%);
+  -webkit-mask-image: radial-gradient(circle at 8% -6%, #000 0%, transparent 55%);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 14px 32px;
+  background: rgba(7, 17, 26, 0.72);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--rift-line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.55rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.logo {
+  color: var(--foam);
+}
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 36px 32px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+/* Panels */
+
+.panel {
+  position: relative;
+  background: rgba(17, 34, 47, 0.78);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--rift-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  width: 38%;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--tier, var(--win)), transparent);
+}
+
+/* Search */
+
+.search {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 620px;
+}
+
+.search-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  background: rgba(7, 17, 26, 0.85);
+  border: 1px solid var(--rift-line);
+  border-radius: var(--radius-md);
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.search-field:focus-within {
+  border-color: var(--win);
+  box-shadow: 0 0 0 3px rgba(63, 208, 184, 0.15);
+}
+
+.search-input,
+.search-region {
+  font: inherit;
+  color: var(--foam);
+  background: transparent;
+  border: 0;
+  padding: 9px 14px;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input:focus-visible,
+.search-region:focus-visible {
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--mist);
+}
+
+.search-region {
+  border-left: 1px solid var(--rift-line);
+  cursor: pointer;
+}
+
+.search-region option {
+  background: var(--rift-raised);
+}
+
+.search-field:has([aria-invalid="true"]) {
+  border-color: var(--loss);
+}
+
+.search-error {
+  flex-basis: 100%;
+  color: var(--loss);
+  font-size: 0.875rem;
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  color: var(--foam);
+  background: transparent;
+  border: 1px solid var(--rift-line);
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: border-color 150ms, background 150ms;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--mist);
+  background: rgba(227, 236, 241, 0.04);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.button-primary {
+  color: var(--rift-deep);
+  background: var(--foam);
+  border-color: var(--foam);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.mock-note {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--mist);
+  border: 1px solid var(--rift-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* Empty and status states */
+
+.empty {
+  max-width: 44ch;
+  padding: 72px 0 0;
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 3.2rem;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--mist);
+}
+
+.status-error {
+  color: var(--loss);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--rift-line);
+  border-top-color: var(--win);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Profile */
+
+.profile {
+  display: grid;
+  gap: 28px;
+  padding: 28px 32px 30px;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.profile-avatar {
+  position: relative;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 22px;
+  padding: 2px;
+  background: linear-gradient(
+    140deg,
+    var(--tier, var(--win)),
+    color-mix(in srgb, var(--tier, var(--win)) 12%, transparent) 60%,
+    var(--rift-line)
+  );
+}
+
+.profile-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: var(--rift-deep);
+}
+
+.profile-level {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--rift-deep);
+  border: 1px solid var(--rift-line);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+
+.profile-text {
+  min-width: 0;
+}
+
+.player-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 3.4rem;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.player-tag {
+  font-weight: 500;
+  color: var(--mist);
+  margin-left: 6px;
+}
+
+.profile-meta {
+  color: var(--mist);
+  font-size: 0.9rem;
+  margin-top: 8px;
+}
+
+.profile-refresh {
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.profile-stats {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px 56px;
+  align-items: end;
+  padding-top: 24px;
+  border-top: 1px solid var(--rift-line);
+}
+
+.ranks {
+  display: flex;
+  gap: 40px;
+}
+
+.rank {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 230px;
+}
+
+.rank-emblem {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--tier) 45%, transparent));
+}
+
+/* Own badge in the tier color, used until the official emblems are added */
+.rank-emblem-fallback {
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.6rem;
+  color: var(--rift-deep);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tier) 60%, white), var(--tier) 55%, color-mix(in srgb, var(--tier) 55%, black));
+  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  filter: none;
+}
+
+.rank-emblem-empty {
+  border: 2px dashed var(--rift-line);
+  border-radius: 50%;
+  filter: none;
+}
+
+.rank-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.rank-queue {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mist);
+}
+
+.rank-tier {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.85rem;
+  line-height: 1.1;
+  color: var(--tier);
+  white-space: nowrap;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--tier) 30%, transparent);
+}
+
+.lp-bar {
+  height: 5px;
+  margin: 7px 0 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tier) 14%, var(--rift-line));
+  overflow: hidden;
+}
+
+.lp-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tier) 55%, black), var(--tier));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--tier) 60%, transparent);
+}
+
+.rank-detail {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.rank-lp {
+  font-weight: 700;
+  color: var(--tier);
+}
+
+/* Tier colors: everything that belongs to a rank takes its color */
+
+[data-tier="iron"] { --tier: #9a8e88; }
+[data-tier="bronze"] { --tier: #c27c4a; }
+[data-tier="silver"] { --tier: #b4c3cd; }
+[data-tier="gold"] { --tier: #e8bd55; }
+[data-tier="platinum"] { --tier: #4fcabd; }
+[data-tier="emerald"] { --tier: #2fd685; }
+[data-tier="diamond"] { --tier: #7aa4ff; }
+[data-tier="master"] { --tier: #c069f5; }
+[data-tier="grandmaster"] { --tier: #f2545f; }
+[data-tier="challenger"] { --tier: #9fe2ff; }
+[data-tier="unranked"] { --tier: var(--mist); }
+
+/* Recent form: the one memorable element */
+
+.form {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  justify-self: end;
+}
+
+.form-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.875rem;
+}
+
+.form-rate {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.form-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 52px;
+}
+
+.form-bar {
+  width: 16px;
+  border-radius: 3px 3px 1px 1px;
+  transform-origin: bottom;
+  animation: rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+
+.form-bar-win {
+  height: 100%;
+  background: linear-gradient(180deg, #6ff0d9, var(--win) 45%, #1f8f7f);
+  box-shadow: 0 0 12px rgba(63, 208, 184, 0.35);
+}
+
+.form-bar-loss {
+  height: 36%;
+  background: linear-gradient(180deg, var(--loss), #8f3550);
+  opacity: 0.85;
+}
+
+@keyframes rise {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Match history */
+
+.section-heading {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.5rem;
+  margin-bottom: 14px;
+}
+
+.matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.match {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 172px 96px 210px 112px;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 18px;
+  background: rgba(17, 34, 47, 0.7);
+  border: 1px solid rgba(31, 54, 71, 0.8);
+  border-radius: var(--radius-md);
+  transition: background 120ms;
+}
+
+.match:hover {
+  background: rgba(22, 43, 59, 0.85);
+}
+
+.match-win {
+  box-shadow: inset 3px 0 0 var(--win);
+  background-image: linear-gradient(90deg, rgba(63, 208, 184, 0.09), transparent 35%);
+}
+
+.match-loss {
+  box-shadow: inset 3px 0 0 var(--loss);
+  background-image: linear-gradient(90deg, rgba(224, 106, 133, 0.08), transparent 35%);
+}
+
+.match-champion img {
+  border-radius: 12px;
+}
+
+.match-outcome {
+  font-weight: 700;
+}
+
+.match-win .match-outcome {
+  color: var(--win);
+}
+
+.match-loss .match-outcome {
+  color: var(--loss);
+}
+
+.match-queue,
+.match-sub,
+.match-when {
+  font-size: 0.85rem;
+  color: var(--mist);
+}
+
+.match-score {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--q, var(--foam));
+}
+
+.match-score .slash {
+  color: var(--mist);
+  font-weight: 500;
+  margin: 0 3px;
+}
+
+.match-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.match-stat {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.match-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 26px);
+  gap: 4px;
+}
+
+.item-slot {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--rift-deep);
+  box-shadow: inset 0 0 0 1px var(--rift-line);
+  overflow: hidden;
+}
+
+.match-when {
+  text-align: right;
+}
+
+/* Loot quality: KDA colored like item rarity */
+
+[data-quality="poor"] { --q: var(--q-poor); }
+[data-quality="common"] { --q: var(--q-common); }
+[data-quality="uncommon"] { --q: var(--q-uncommon); }
+[data-quality="rare"] { --q: var(--q-rare); }
+[data-quality="epic"] { --q: var(--q-epic); }
+[data-quality="legendary"] { --q: var(--q-legendary); }
+
+[data-quality="legendary"] .match-score {
+  text-shadow: 0 0 14px rgba(255, 162, 61, 0.45);
+}
+
+.quality-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--q);
+  background: color-mix(in srgb, var(--q) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--q) 38%, transparent);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+/* Narrow windows */
+
+@media (max-width: 900px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    padding: 12px 16px;
+  }
+
+  .content {
+    padding: 24px 16px 40px;
+  }
+
+  .profile {
+    padding: 22px 20px;
+  }
+
+  .profile-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .form {
+    justify-self: start;
+  }
+
+  .player-name {
+    font-size: 2.6rem;
+  }
+
+  .ranks {
+    gap: 24px;
+  }
+
+  .rank {
+    min-width: 0;
+  }
+
+  .match {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 8px 14px;
+  }
+
+  .match-champion img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .match-cs,
+  .match-when {
+    display: none;
+  }
+
+  .match-items {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-bar,
+  .spinner {
+    animation: none;
+  }
+}
