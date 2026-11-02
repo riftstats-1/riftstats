@@ -3,6 +3,18 @@ import { queryRows, type Database } from "./db.js";
 import { HttpError } from "./errors.js";
 import type { MatchSummary, RiotMatch } from "./riot/types.js";
 
+export interface MatchParticipant {
+  puuid: string; championId: number; championName: string; teamId: number; win: boolean;
+  kills: number; deaths: number; assists: number; cs: number; gold: number; damage: number; items: number[];
+}
+export interface MatchDetails {
+  matchId: string; queueId: number; gameStart: string; durationS: number; patch: string;
+  participants: MatchParticipant[];
+}
+export interface ChampionStats {
+  championName: string; games: number; wins: number; kills: number; deaths: number; assists: number;
+}
+
 export async function missingMatchIds(database: Database, ids: string[]): Promise<string[]> {
   const saved = await queryRows<{ match_id: string }>(database,
     "SELECT match_id FROM matches WHERE match_id = ANY($1::text[])", [ids]);
@@ -44,4 +56,30 @@ export async function getMatches(database: Database, puuid: string, limit: numbe
     WHERE p.puuid=$1 AND p.champion_name IS NOT NULL AND m.game_start IS NOT NULL
     ORDER BY m.game_start DESC, m.match_id DESC LIMIT $2`, [puuid, limit]);
   return rows.map((row) => ({ ...row, gameStart: row.gameStart.toISOString() }));
+}
+
+export async function getMatchDetails(database: Database, matchId: string): Promise<MatchDetails> {
+  const [match] = await queryRows<Omit<MatchDetails, "gameStart" | "participants"> & { gameStart: Date }>(database, `
+    SELECT match_id AS "matchId", queue_id AS "queueId", game_start AS "gameStart",
+      duration_s AS "durationS", patch FROM matches WHERE match_id=$1 AND game_start IS NOT NULL`, [matchId]);
+  if (!match) throw new HttpError(404, "MATCH_NOT_FOUND", "Matchen hittades inte");
+  const participants = await queryRows<MatchParticipant>(database, `
+    SELECT puuid, champion_id AS "championId", champion_name AS "championName", team_id AS "teamId",
+      win, kills, deaths, assists, cs, gold, damage, items FROM match_participants
+    WHERE match_id=$1 ORDER BY team_id, puuid`, [matchId]);
+  return { ...match, gameStart: match.gameStart.toISOString(), participants };
+}
+
+export async function getChampionStats(database: Database, puuid: string, limit: number): Promise<ChampionStats[]> {
+  const exists = await queryRows(database, "SELECT 1 FROM players WHERE puuid=$1", [puuid]);
+  if (exists.length === 0) throw new HttpError(404, "PLAYER_NOT_FOUND", "Spelaren hittades inte");
+  return queryRows<ChampionStats>(database, `
+    SELECT p.champion_name AS "championName", count(*)::int AS games,
+      (count(*) FILTER (WHERE p.win))::int AS wins,
+      sum(p.kills)::float8 AS kills, sum(p.deaths)::float8 AS deaths, sum(p.assists)::float8 AS assists
+    FROM match_participants p JOIN matches m ON m.match_id=p.match_id
+    WHERE p.puuid=$1 AND p.champion_name IS NOT NULL AND m.game_start IS NOT NULL
+    GROUP BY p.champion_name
+    ORDER BY games DESC, wins DESC, p.champion_name COLLATE "C"
+    LIMIT $2`, [puuid, limit]);
 }

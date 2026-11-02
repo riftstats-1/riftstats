@@ -47,6 +47,22 @@ it("exposes health probes but not player endpoints in fetcher mode", async () =>
     expect((await app.inject({ url: "/health" })).statusCode).toBe(200);
     expect((await app.inject({ url: "/ready" })).statusCode).toBe(200);
     expect((await app.inject({ url: "/v1/players/euw1/Example/EUW" })).statusCode).toBe(404);
+    expect((await app.inject({ url: "/v1/matches/EUW1_1" })).statusCode).toBe(404);
+    expect((await app.inject({ url: "/v1/players/fixture-puuid/champions" })).statusCode).toBe(404);
+  } finally { await app.close(); }
+});
+
+it("never calls Riot or creates jobs when match details or champion stats are absent", async () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
+  const app = buildApp({}, { query });
+  try {
+    for (const url of ["/v1/matches/EUW1_999", "/v1/players/unknown/champions"]) {
+      expect((await app.inject({ url })).statusCode).toBe(404);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    expect(query.mock.calls.every(([sql]) => sql.trimStart().startsWith("SELECT"))).toBe(true);
   } finally { await app.close(); }
 });
 
