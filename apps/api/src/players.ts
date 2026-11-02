@@ -18,6 +18,12 @@ export async function getPlayer(database: Database, lookup: LookupPayload): Prom
   return row ? { ...row, lastFetched: row.lastFetched.toISOString() } : undefined;
 }
 
+export async function playerIdentity(database: Database, puuid: string) {
+  const [player] = await queryRows<LookupPayload & { puuid: string }>(database,
+    'SELECT puuid, game_name AS "gameName", tag_line AS "tagLine", region FROM players WHERE puuid=$1', [puuid]);
+  return player;
+}
+
 // Called inside the same transaction that marks the job done.
 export async function savePlayer(client: PoolClient, profile: PlayerProfile): Promise<void> {
   await client.query(`INSERT INTO players(puuid, game_name, tag_line, region, profile_icon, summoner_level, last_fetched)

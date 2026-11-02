@@ -18,6 +18,18 @@ jobs:
   test:
     name: Test API
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: riftstats
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: riftstats_test
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U riftstats -d riftstats_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: apps/api
@@ -31,6 +43,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Test deployment and restore scripts
+        working-directory: .
+        run: python3 -m unittest discover -s infra/tests -v
+      - run: npm run build
+      - run: npm run test:integration
+        env:
+          # Isolated runner-local test database; never production credentials.
+          TEST_DATABASE_URL: postgresql://riftstats:test@127.0.0.1:5432/riftstats_test
 
   build:
     name: Build and push image
@@ -62,6 +82,7 @@ jobs:
     name: Deploy to k3s
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -75,27 +96,8 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
-      - name: Apply manifests and wait for rollout
+      - name: Deploy API and fetcher
         env:
           TARGET: deploy@${{ secrets.SSH_HOST }}
         run: |
-          {
-            sed "s|IMAGE_PLACEHOLDER|${IMAGE}:${GITHUB_SHA}|" infra/k8s/api.yaml
-            echo '---'
-            cat infra/k8s/postgres.yaml
-            echo '---'
-            cat infra/k8s/backup.yaml
-          } | ssh "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
-                kubectl apply -f - &&
-                kubectl -n riftstats rollout status deployment/api --timeout=180s'
-
-      - name: Smoke test
-        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors "$API_URL/health"
-
-      - name: Roll back on failure
-        if: failure()
-        env:
-          TARGET: deploy@${{ secrets.SSH_HOST }}
-        run: |
-          ssh "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
-              kubectl -n riftstats rollout undo deployment/api'
+          bash infra/scripts/deploy.sh "$TARGET" "$IMAGE:$GITHUB_SHA" "$API_URL"

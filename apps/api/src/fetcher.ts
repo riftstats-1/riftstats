@@ -1,12 +1,15 @@
 import type { Pool, PoolClient } from "pg";
 import { claimJob, lookupPayload } from "./jobs.js";
-import { savePlayer } from "./players.js";
+import { playerIdentity, savePlayer } from "./players.js";
+import { missingMatchIds, saveMatches } from "./matches.js";
 import type { RiotClient } from "./riot/client.js";
-import { RiotError } from "./riot/errors.js";
+import { invalidResponse, RiotError } from "./riot/errors.js";
 import { wait } from "./riot/limiter.js";
 import { toPlayerProfile } from "./riot/mappers.js";
+import type { RiotAccount, RiotMatch } from "./riot/types.js";
+import type { Region } from "./riot/routing.js";
 
-type LookupRiot = Pick<RiotClient, "getAccountByRiotId" | "getSummonerByPuuid" | "getLeagueEntries">;
+type LookupRiot = Pick<RiotClient, "getAccountByRiotId" | "getAccountByPuuid" | "getSummonerByPuuid" | "getLeagueEntries" | "getMatchIds" | "getMatch">;
 interface FetchLogger {
   info: (fields: Record<string, unknown>, message: string) => void;
   error: (fields: Record<string, unknown>, message: string) => void;
@@ -28,16 +31,37 @@ export async function processNextJob(client: PoolClient, riot: LookupRiot, signa
   log.info({ jobId: job.id, attempts: job.attempts }, "Hämtar spelarprofil från Riot");
   try {
     signal.throwIfAborted();
-    if (job.kind !== "lookup") throw new Error("Unsupported job kind");
-    const payload = lookupPayload(job.payload);
-    const account = await riot.getAccountByRiotId(payload.region, payload.gameName, payload.tagLine, signal);
-    const summoner = await riot.getSummonerByPuuid(payload.region, account.puuid, signal);
-    const entries = await riot.getLeagueEntries(payload.region, account.puuid, signal);
-    const profile = toPlayerProfile(account, summoner, entries, payload.region);
+    let identity: RiotAccount & { region: Region };
+    if (job.kind === "lookup") {
+      const payload = lookupPayload(job.payload);
+      const account = await riot.getAccountByRiotId(payload.region, payload.gameName, payload.tagLine, signal);
+      identity = { ...account, region: payload.region };
+    } else if (job.kind === "refresh") {
+      const payload = job.payload;
+      if (typeof payload !== "object" || payload === null || !("puuid" in payload) || typeof payload.puuid !== "string") return invalidResponse();
+      const player = await playerIdentity(client, payload.puuid);
+      if (!player) throw new RiotError("RIOT_NOT_FOUND", "Spelaren hittades inte", 404);
+      const account = await riot.getAccountByPuuid(player.region, player.puuid, signal);
+      if (account.puuid !== player.puuid) return invalidResponse();
+      identity = { ...account, region: player.region };
+    } else { throw new Error("Unsupported job kind"); }
+    const summoner = await riot.getSummonerByPuuid(identity.region, identity.puuid, signal);
+    const entries = await riot.getLeagueEntries(identity.region, identity.puuid, signal);
+    const profile = toPlayerProfile(identity, summoner, entries, identity.region);
+    const ids = await riot.getMatchIds(identity.region, identity.puuid, 20, signal);
+    const missing = await missingMatchIds(client, ids);
+    const matches: RiotMatch[] = [];
+    for (const id of missing) {
+      signal.throwIfAborted();
+      const match = await riot.getMatch(identity.region, id, signal);
+      if (match.metadata.matchId !== id || !match.info.participants.some((p) => p.puuid === identity.puuid)) return invalidResponse();
+      matches.push(match);
+    }
     signal.throwIfAborted();
     await client.query("BEGIN");
     try {
       await savePlayer(client, profile);
+      await saveMatches(client, matches);
       await client.query("UPDATE fetch_jobs SET status='done', error=NULL, updated_at=now() WHERE id=$1", [job.id]);
       signal.throwIfAborted();
       await client.query("COMMIT");
@@ -45,7 +69,7 @@ export async function processNextJob(client: PoolClient, riot: LookupRiot, signa
       await client.query("ROLLBACK");
       throw error;
     }
-    log.info({ jobId: job.id }, "Spelarprofil sparad och jobb klart");
+    log.info({ jobId: job.id, newMatches: matches.length }, "Spelarprofil och matchhistorik sparade");
   } catch (error) {
     if (signal.aborted) {
       await client.query(`UPDATE fetch_jobs SET status=CASE WHEN attempts < 3 THEN 'pending' ELSE 'failed' END,

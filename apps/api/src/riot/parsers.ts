@@ -47,6 +47,7 @@ export function parseMatch(value: unknown): RiotMatch {
       teamId: integer(p.teamId), win: p.win === true,
       kills: zero(p.kills), deaths: zero(p.deaths), assists: zero(p.assists),
       totalMinionsKilled: zero(p.totalMinionsKilled), neutralMinionsKilled: zero(p.neutralMinionsKilled),
+      goldEarned: zero(p.goldEarned), totalDamageDealtToChampions: zero(p.totalDamageDealtToChampions),
       item0: zero(p.item0), item1: zero(p.item1), item2: zero(p.item2), item3: zero(p.item3),
       item4: zero(p.item4), item5: zero(p.item5), item6: zero(p.item6),
     };
