@@ -3,7 +3,7 @@ import type { Database } from "./db.js";
 import { HttpError } from "./errors.js";
 import { enqueueLookup, enqueueRefresh, getJob, lookupPayload, publicJobId } from "./jobs.js";
 import { getPlayer } from "./players.js";
-import { getMatches } from "./matches.js";
+import { getChampionStats, getMatchDetails, getMatches } from "./matches.js";
 
 const playerParams = {
   type: "object", additionalProperties: false, required: ["puuid"],
@@ -47,6 +47,20 @@ export function registerLookupRoutes(app: FastifyInstance, database: Database) {
       querystring: { type: "object", additionalProperties: false, properties: { limit: { type: "integer", minimum: 1, maximum: 100, default: 20 } } },
     },
   }, async (request) => getMatches(database, request.params.puuid, request.query.limit ?? 20));
+
+  app.get<{ Params: { matchId: string } }>("/v1/matches/:matchId", {
+    schema: { params: {
+      type: "object", additionalProperties: false, required: ["matchId"],
+      properties: { matchId: { type: "string", maxLength: 37, pattern: "^[A-Z0-9]{2,16}_[0-9]{1,20}$" } },
+    } },
+  }, async (request) => getMatchDetails(database, request.params.matchId));
+
+  app.get<{ Params: { puuid: string }; Querystring: { limit?: number } }>("/v1/players/:puuid/champions", {
+    schema: {
+      params: playerParams,
+      querystring: { type: "object", additionalProperties: false, properties: { limit: { type: "integer", minimum: 1, maximum: 100, default: 5 } } },
+    },
+  }, async (request) => getChampionStats(database, request.params.puuid, request.query.limit ?? 5));
 
   app.post<{ Params: { puuid: string } }>("/v1/players/:puuid/refresh", {
     schema: { params: playerParams, body: { type: "null" } },

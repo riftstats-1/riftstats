@@ -363,6 +363,103 @@ test("known player without matches gets an empty array", async () => {
   finally { await app.close(); }
 });
 
+test("match details expose saved metadata and all participants without raw upstream fields or Riot calls", async () => {
+  await runMigrations(database);
+  const match = sampleMatch();
+  match.info.participants.push({ ...match.info.participants[0], puuid: "opponent-puuid", teamId: 200, win: false });
+  match.info.privateUpstreamField = "must-not-leak";
+  await enqueueLookup(database, { region: "euw1", gameName: "Example", tagLine: "EUW" });
+  await processQueued({ ...mockRiot(), getMatch: async () => match });
+  const app = buildApp({}, database);
+  try {
+    const res = await app.inject({ url: `/v1/matches/${match.metadata.matchId}` });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      matchId: match.metadata.matchId, queueId: 420, gameStart: new Date(match.info.gameStartTimestamp).toISOString(),
+      durationS: 1800, patch: "26.21.1",
+      participants: match.info.participants.map((p) => ({
+        puuid: p.puuid, championId: p.championId, championName: p.championName, teamId: p.teamId,
+        win: p.win, kills: p.kills, deaths: p.deaths, assists: p.assists,
+        cs: p.totalMinionsKilled + p.neutralMinionsKilled, gold: p.goldEarned,
+        damage: p.totalDamageDealtToChampions,
+        items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6],
+      })),
+    });
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM fetch_jobs")).rows[0].n, 1);
+  } finally { await app.close(); }
+});
+
+test("match details validate IDs and return a structured 404 for an uncached match", async () => {
+  await runMigrations(database);
+  const app = buildApp({}, database);
+  try {
+    for (const id of ["%20", "EUW1_nope", "euw1_123", "EUW1_1%27", "A".repeat(50)]) {
+      const res = await app.inject({ url: `/v1/matches/${id}` });
+      assert.equal(res.statusCode, 400, id);
+      assert.equal(res.json().error.code, "VALIDATION_ERROR");
+    }
+    const absent = await app.inject({ url: "/v1/matches/EUW1_999" });
+    assert.equal(absent.statusCode, 404);
+    assert.equal(absent.json().error.code, "MATCH_NOT_FOUND");
+    assert.equal((await database.query("SELECT count(*)::int AS n FROM fetch_jobs")).rows[0].n, 0);
+  } finally { await app.close(); }
+});
+
+test("champion stats aggregate only the requested player's saved matches and sort ties deterministically", async () => {
+  await runMigrations(database);
+  const samples = [
+    ["Ahri", true, 10, 0, 8], ["Ahri", false, 2, 4, 3],
+    ["Garen", true, 5, 1, 0], ["Zed", true, 3, 0, 0],
+    ["Lux", false, 1, 2, 3],
+  ] as const;
+  await enqueueLookup(database, { region: "euw1", gameName: "Example", tagLine: "EUW" });
+  await processQueued({
+    ...mockRiot(),
+    getMatchIds: async () => samples.map((_, i) => `EUW1_${i + 1}`),
+    getMatch: async (_region, id) => {
+      const match = sampleMatch(id);
+      const [championName, win, kills, deaths, assists] = samples[Number(id.split("_")[1]) - 1];
+      Object.assign(match.info.participants[0], { championName, win, kills, deaths, assists });
+      match.info.participants.push({ ...match.info.participants[0], puuid: "other-player", kills: 99 });
+      return match;
+    },
+  });
+  const app = buildApp({}, database);
+  try {
+    const res = await app.inject({ url: "/v1/players/fixture-puuid/champions" });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), [
+      { championName: "Ahri", games: 2, wins: 1, kills: 12, deaths: 4, assists: 11 },
+      { championName: "Garen", games: 1, wins: 1, kills: 5, deaths: 1, assists: 0 },
+      { championName: "Zed", games: 1, wins: 1, kills: 3, deaths: 0, assists: 0 },
+      { championName: "Lux", games: 1, wins: 0, kills: 1, deaths: 2, assists: 3 },
+    ]);
+    const limited = await app.inject({ url: "/v1/players/fixture-puuid/champions?limit=1" });
+    assert.deepEqual(limited.json(), res.json().slice(0, 1));
+  } finally { await app.close(); }
+});
+
+test("champion stats distinguish empty history from an unknown player and reject invalid input", async () => {
+  await runMigrations(database);
+  await enqueueLookup(database, { region: "euw1", gameName: "Example", tagLine: "EUW" });
+  await processQueued({ ...mockRiot(), getMatchIds: async () => [] });
+  const app = buildApp({}, database);
+  try {
+    const empty = await app.inject({ url: "/v1/players/fixture-puuid/champions" });
+    assert.equal(empty.statusCode, 200);
+    assert.deepEqual(empty.json(), []);
+    const absent = await app.inject({ url: "/v1/players/unknown/champions" });
+    assert.equal(absent.statusCode, 404);
+    assert.equal(absent.json().error.code, "PLAYER_NOT_FOUND");
+    for (const query of ["limit=0", "limit=101", "limit=nope", "limit=1.5"]) {
+      const res = await app.inject({ url: `/v1/players/fixture-puuid/champions?${query}` });
+      assert.equal(res.statusCode, 400, query);
+      assert.equal(res.json().error.code, "VALIDATION_ERROR");
+    }
+    assert.equal((await app.inject({ url: "/v1/players/%20/champions" })).statusCode, 400);
+  } finally { await app.close(); }
+});
+
 test("concurrent refreshes reuse one numeric job ID and cannot bypass the cooldown", async () => {
   await runMigrations(database);
   await seedPlayer();

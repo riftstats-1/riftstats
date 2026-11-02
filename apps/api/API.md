@@ -11,6 +11,8 @@ Svarsformaten följer [desktop-klientens typer](https://github.com/riftstats-1/r
 | GET | `/v1/players/:region/:gameName/:tagLine` | Implementerad |
 | GET | `/v1/jobs/:jobId` | Implementerad |
 | GET | `/v1/players/:puuid/matches?limit=20` | Implementerad |
+| GET | `/v1/matches/:matchId` | Implementerad |
+| GET | `/v1/players/:puuid/champions?limit=5` | Implementerad |
 | POST | `/v1/players/:puuid/refresh` | Implementerad |
 
 ## Spelaruppslag
@@ -65,6 +67,18 @@ Avsluta polling vid `done` eller `failed`. Okänt jobb ger 404 `JOB_NOT_FOUND`.
 
 Alla matchfält krävs och är utan null. `championName` är Data Dragons ID, exempelvis `LeeSin`. `cs` inkluderar neutrala minions. `items` har sju positioner inklusive trinket; 0 betyder tom plats. Tom historik ger `[]`; okänd spelare ger 404 `PLAYER_NOT_FOUND`.
 
+## Matchdetaljer
+
+`GET /v1/matches/:matchId` läser en sparad match. ID består av 2–16 stora bokstäver/siffror, `_` och 1–20 siffror, exempelvis `EUW1_1234567890`. Saknad match ger 404 `MATCH_NOT_FOUND`; inget hämtningsjobb skapas.
+
+**200:** `{ matchId, queueId, gameStart, durationS, patch, participants }`. `gameStart` är ISO 8601, `patch` är Riots fullständiga `gameVersion`. Varje deltagare innehåller `{ puuid, championId, championName, teamId, win, kills, deaths, assists, cs, gold, damage, items }`. `gold` är intjänat guld och `damage` är skada på champions. Samma CS- och itemregler som för matchhistorik gäller. Deltagarna sorteras efter `teamId`, sedan `puuid`. Råsvaret från Riot exponeras inte.
+
+## Champion-statistik
+
+`GET /v1/players/:puuid/champions?limit=5` summerar spelarens **alla sparade matcher**, över samtliga köer. Statistiken är inte fullständig säsongsstatistik och gör inga nya Riot-anrop. `limit`: heltal 1–100, standard 5, begränsar antalet champions i svaret. Samma puuid-regler som för matchhistorik gäller.
+
+**200:** direkt array av `{ championName, games, wins, kills, deaths, assists }`. Alla statistikfält är numeriska totaler. Sortering: flest matcher, sedan flest vinster, sedan champion-namn i stigande ordning. Klienten kan beräkna winrate och KDA från totalerna; inga kvoter med division med noll skickas. Tom historik ger `[]`; okänd spelare ger 404 `PLAYER_NOT_FOUND`.
+
 ## Refresh
 
 Ingen request-body. Samma puuid-regler som för matchhistorik.
@@ -80,7 +94,7 @@ Ingen request-body. Samma puuid-regler som för matchhistorik.
 | HTTP | Kod |
 |---|---|
 | 400 | VALIDATION_ERROR |
-| 404 | JOB_NOT_FOUND / NOT_FOUND / PLAYER_NOT_FOUND |
+| 404 | JOB_NOT_FOUND / NOT_FOUND / PLAYER_NOT_FOUND / MATCH_NOT_FOUND |
 | 429 | REFRESH_RATE_LIMITED |
 | 503 | DATABASE_UNAVAILABLE |
 | 500 | INTERNAL_ERROR |
