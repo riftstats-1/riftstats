@@ -55,6 +55,9 @@ export function MatchList({ matches, version }: Props) {
                 <p className="match-queue">
                   {queueName(m.queueId)}, {formatDuration(m.durationS)}
                 </p>
+                <p className="match-queue">
+                  <time dateTime={m.gameStart}>{timeAgo(m.gameStart)}</time>
+                </p>
               </div>
 
               <div className="match-kda" data-quality={quality}>
@@ -83,8 +86,8 @@ export function MatchList({ matches, version }: Props) {
                       <img
                         src={itemIcon(version, item)}
                         alt=""
-                        width={26}
-                        height={26}
+                        width={24}
+                        height={24}
                         onError={hideBroken}
                       />
                     )}
@@ -92,9 +95,6 @@ export function MatchList({ matches, version }: Props) {
                 ))}
               </ul>
 
-              <p className="match-when">
-                <time dateTime={m.gameStart}>{timeAgo(m.gameStart)}</time>
-              </p>
             </li>
           );
         })}

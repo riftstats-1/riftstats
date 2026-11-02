@@ -5,6 +5,13 @@ export type Region = "euw1" | "eun1" | "na1" | "kr";
 
 export type QueueType = "RANKED_SOLO_5x5" | "RANKED_FLEX_SR";
 
+export interface LpPoint {
+  recordedAt: string; // ISO date
+  tier: string;
+  rank: string;
+  lp: number;
+}
+
 export interface RankEntry {
   queueType: QueueType;
   tier: string; // "GOLD", "MASTER" ...
@@ -12,6 +19,7 @@ export interface RankEntry {
   lp: number;
   wins: number;
   losses: number;
+  history?: LpPoint[]; // oldest first, from the backend's rank_history table
 }
 
 export interface PlayerProfile {

@@ -96,3 +96,62 @@ export function parseRiotId(input: string): { gameName: string; tagLine: string 
   if (!gameName || !tagLine) return null;
   return { gameName, tagLine };
 }
+
+export interface ChampionStats {
+  championName: string;
+  games: number;
+  wins: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+}
+
+/** Per-champion stats from a list of matches, most played first. */
+export function topChampions(matches: MatchSummary[], limit = 5): ChampionStats[] {
+  const byChampion = new Map<string, ChampionStats>();
+  for (const m of matches) {
+    const s = byChampion.get(m.championName) ?? {
+      championName: m.championName,
+      games: 0,
+      wins: 0,
+      kills: 0,
+      deaths: 0,
+      assists: 0,
+    };
+    s.games += 1;
+    s.wins += m.win ? 1 : 0;
+    s.kills += m.kills;
+    s.deaths += m.deaths;
+    s.assists += m.assists;
+    byChampion.set(m.championName, s);
+  }
+  return [...byChampion.values()]
+    .sort((a, b) => b.games - a.games || b.wins / b.games - a.wins / a.games)
+    .slice(0, limit);
+}
+
+const LADDER_TIERS = [
+  "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
+] as const;
+const DIVISIONS = ["IV", "III", "II", "I"] as const;
+const APEX_BASE = LADDER_TIERS.length * 400; // Master 0 LP
+
+/**
+ * Position on the whole ladder, so a promotion keeps the line going up:
+ * Gold IV 90 LP < Gold III 10 LP. Each division is 100 points, each tier 400.
+ */
+export function ladderScore(p: { tier: string; rank: string; lp: number }): number {
+  if (APEX_TIERS.has(p.tier)) return APEX_BASE + p.lp;
+  const tier = LADDER_TIERS.indexOf(p.tier as (typeof LADDER_TIERS)[number]);
+  const division = DIVISIONS.indexOf(p.rank as (typeof DIVISIONS)[number]);
+  return Math.max(tier, 0) * 400 + Math.max(division, 0) * 100 + p.lp;
+}
+
+/** Inverse of ladderScore for the tiers below Master. */
+export function rankFromScore(score: number): { tier: string; rank: string; lp: number } {
+  if (score >= APEX_BASE) return { tier: "MASTER", rank: "I", lp: score - APEX_BASE };
+  const clamped = Math.max(score, 0);
+  const tier = LADDER_TIERS[Math.floor(clamped / 400)];
+  const division = DIVISIONS[Math.floor((clamped % 400) / 100)];
+  return { tier, rank: division, lp: clamped % 100 };
+}

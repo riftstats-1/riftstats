@@ -4,9 +4,12 @@ import {
   formatDuration,
   kdaQuality,
   kdaRatio,
+  ladderScore,
   parseRiotId,
   queueName,
+  rankFromScore,
   tierLabel,
+  topChampions,
   winrate,
 } from "./format";
 
@@ -61,5 +64,56 @@ describe("formatting", () => {
   it("maps queue ids", () => {
     expect(queueName(420)).toBe("Ranked Solo/Duo");
     expect(queueName(99999)).toBe("Other");
+  });
+});
+
+describe("topChampions", () => {
+  const match = (championName: string, win: boolean) => ({
+    matchId: `${championName}-${Math.random()}`,
+    queueId: 420,
+    gameStart: "2026-11-01T12:00:00Z",
+    durationS: 1800,
+    championName,
+    win,
+    kills: 5,
+    deaths: 2,
+    assists: 7,
+    cs: 200,
+    items: [],
+  });
+
+  it("groups by champion, most played first", () => {
+    const result = topChampions([
+      match("Ahri", true),
+      match("Jinx", false),
+      match("Ahri", false),
+      match("Ahri", true),
+    ]);
+    expect(result.map((c) => [c.championName, c.games, c.wins])).toEqual([
+      ["Ahri", 3, 2],
+      ["Jinx", 1, 0],
+    ]);
+    expect(result[0].kills).toBe(15);
+  });
+
+  it("returns an empty list without matches", () => {
+    expect(topChampions([])).toEqual([]);
+  });
+});
+
+describe("ladderScore", () => {
+  it("keeps going up across a promotion", () => {
+    const before = ladderScore({ tier: "GOLD", rank: "IV", lp: 90 });
+    const after = ladderScore({ tier: "GOLD", rank: "III", lp: 10 });
+    expect(after - before).toBe(20);
+  });
+  it("puts Master above Diamond I", () => {
+    expect(ladderScore({ tier: "MASTER", rank: "I", lp: 0 })).toBeGreaterThan(
+      ladderScore({ tier: "DIAMOND", rank: "I", lp: 99 }),
+    );
+  });
+  it("round-trips with rankFromScore", () => {
+    const p = { tier: "EMERALD", rank: "II", lp: 35 };
+    expect(rankFromScore(ladderScore(p))).toEqual(p);
   });
 });

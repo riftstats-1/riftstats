@@ -34,3 +34,7 @@ export const itemIcon = (version: string, itemId: number) =>
 
 export const profileIcon = (version: string, iconId: number) =>
   `${ASSET_URL}/cdn/${version}/img/profileicon/${iconId}.png`;
+
+/** Full splash art, used as the profile backdrop. Not versioned by Data Dragon. */
+export const championSplash = (championName: string) =>
+  `${ASSET_URL}/cdn/img/champion/splash/${championName}_0.jpg`;
