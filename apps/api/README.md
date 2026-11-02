@@ -5,7 +5,7 @@ Backend i Fastify och TypeScript med Postgres. Samma kod körs i två roller:
 - **api:** läser spelarprofiler och rank från databasen och skapar hämtningsjobb.
 - **fetcher:** bearbetar jobben och hämtar data från Riot. Endast en fetcher får köras per databas.
 
-Spelaruppslag och jobbstatus är implementerade. Matchhistorik och refresh återstår. Endpoints och svarsformat finns i [API.md](API.md).
+Spelaruppslag, jobbstatus, matchhistorik och refresh är implementerade. Fetchern hämtar de senaste 20 matcherna och återanvänder sparade matcher. Endpoints och svarsformat finns i [API.md](API.md).
 
 ## Lokal körning
 

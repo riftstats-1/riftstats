@@ -20,7 +20,10 @@ export function buildApp(
     if (error && typeof error === "object" && "validation" in error && error.validation) {
       return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "Ogiltiga parametrar" } });
     }
-    if (error instanceof HttpError) return reply.code(error.status).send({ error: { code: error.code, message: error.message } });
+    if (error instanceof HttpError) {
+      if (error.retryAfter !== undefined) reply.header("Retry-After", String(error.retryAfter));
+      return reply.code(error.status).send({ error: { code: error.code, message: error.message } });
+    }
     const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
     const unavailable = typeof code === "string" && /^(08|57P0|ECONN|ENOTFOUND|ETIMEDOUT)/.test(code);
     app.log.error({ code: unavailable ? "DATABASE_UNAVAILABLE" : "INTERNAL_ERROR" }, "API-anrop misslyckades");

@@ -33,29 +33,125 @@ spec:
             - name: http
               containerPort: 3000
           env:
+            - name: MODE
+              value: api
             - name: PORT
               value: "3000"
             - name: LOG_LEVEL
               value: info
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: riftstats
+            - name: PGDATABASE
+              value: riftstats
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
           resources:
             requests:
               cpu: 100m
               memory: 64Mi
             limits:
               memory: 256Mi
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 36
           readinessProbe:
             httpGet: { path: /ready, port: http }
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 2
           livenessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 2
           lifecycle:
             preStop:
               # Ge load balancern tid att sluta skicka trafik innan podden stängs
               exec:
                 command: ["sleep", "5"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fetcher
+  namespace: riftstats
+  labels: { app: fetcher }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: fetcher }
+  template:
+    metadata:
+      labels: { app: fetcher }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: fetcher
+          image: IMAGE_PLACEHOLDER
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: MODE
+              value: fetcher
+            - name: PORT
+              value: "3000"
+            - name: LOG_LEVEL
+              value: info
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: riftstats
+            - name: PGDATABASE
+              value: riftstats
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: RIOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: riot-api-key
+                  key: key
+            - name: RIOT_RATE_PER_SEC
+              value: "18"
+            - name: RIOT_RATE_PER_2MIN
+              value: "90"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
 ---
 apiVersion: v1
 kind: Service

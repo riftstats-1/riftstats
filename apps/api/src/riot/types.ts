@@ -8,6 +8,7 @@ export interface RiotLeagueEntry {
 export interface RiotParticipant extends Record<string, unknown> {
   puuid: string; championId: number; championName: string; teamId: number; win: boolean;
   kills: number; deaths: number; assists: number; totalMinionsKilled: number; neutralMinionsKilled: number;
+  goldEarned: number; totalDamageDealtToChampions: number;
   item0: number; item1: number; item2: number; item3: number; item4: number; item5: number; item6: number;
 }
 export interface RiotMatch extends Record<string, unknown> {

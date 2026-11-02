@@ -29,10 +29,13 @@ export async function runMigrations(database: Pool = pool, directory = defaultDi
     const checksums = new Map(applied.rows.map((row) => [row.filename, row.checksum]));
 
     for (const filename of files) {
-      const sql = await readFile(join(directory, filename), "utf8");
+      // Git may check out the same SQL with CRLF on Windows and LF in Docker.
+      const sql = (await readFile(join(directory, filename), "utf8")).replace(/\r\n/g, "\n");
       const checksum = createHash("sha256").update(sql).digest("hex");
       if (checksums.has(filename)) {
-        if (checksums.get(filename) !== checksum) {
+        // Also recognize checksums stored by the old runner on Windows.
+        const legacyChecksum = createHash("sha256").update(sql.replace(/\n/g, "\r\n")).digest("hex");
+        if (checksums.get(filename) !== checksum && checksums.get(filename) !== legacyChecksum) {
           throw new Error(`Migration checksum mismatch: ${filename}; create a new migration instead`);
         }
         continue;

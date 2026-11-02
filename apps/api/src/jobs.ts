@@ -1,5 +1,5 @@
 import { queryRows, type Database } from "./db.js";
-import { validationError } from "./errors.js";
+import { HttpError, validationError } from "./errors.js";
 import { platformRoute, type Region } from "./riot/routing.js";
 
 export interface LookupPayload { region: Region; gameName: string; tagLine: string }
@@ -43,6 +43,35 @@ export async function claimJob(database: Database): Promise<JobRecord | undefine
       ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT 1
     ) RETURNING *`);
   return rows[0];
+}
+
+export async function enqueueRefresh(database: Database, puuid: string): Promise<number> {
+  // A concurrent UPDATE waits for the player row, then rechecks the cooldown
+  // against the updated row. Both the timestamp and new job commit atomically.
+  // https://www.postgresql.org/docs/17/transaction-iso.html#XACT-READ-COMMITTED
+  const inserted = await queryRows<{ id: string }>(database, `
+    WITH eligible AS (
+      UPDATE players p SET refresh_requested_at=clock_timestamp()
+      WHERE p.puuid=$1
+        AND (p.refresh_requested_at IS NULL OR p.refresh_requested_at <= clock_timestamp()-interval '120 seconds')
+        AND NOT EXISTS (
+          SELECT 1 FROM fetch_jobs j WHERE j.kind='refresh' AND j.payload->>'puuid'=$1
+            AND j.status IN ('pending','running')
+        )
+      RETURNING p.puuid
+    )
+    INSERT INTO fetch_jobs(kind,payload)
+    SELECT 'refresh', jsonb_build_object('puuid',puuid) FROM eligible RETURNING id`, [puuid]);
+  if (inserted[0]) return publicJobId(inserted[0].id);
+
+  const [state] = await queryRows<{ active_id: string | null; retry_after: number }>(database, `
+    SELECT (SELECT j.id FROM fetch_jobs j WHERE j.kind='refresh' AND j.payload->>'puuid'=p.puuid
+      AND j.status IN ('pending','running') LIMIT 1) AS active_id,
+      GREATEST(1, CEIL(EXTRACT(EPOCH FROM(p.refresh_requested_at+interval '120 seconds'-clock_timestamp()))))::int AS retry_after
+    FROM players p WHERE p.puuid=$1`, [puuid]);
+  if (!state) throw new HttpError(404, "PLAYER_NOT_FOUND", "Spelaren hittades inte");
+  if (state.active_id) return publicJobId(state.active_id);
+  throw new HttpError(429, "REFRESH_RATE_LIMITED", "Vänta innan du uppdaterar spelaren igen", state.retry_after);
 }
 
 export async function getJob(database: Database, id: number) {

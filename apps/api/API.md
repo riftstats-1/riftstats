@@ -10,8 +10,8 @@ Svarsformaten följer [desktop-klientens typer](https://github.com/riftstats-1/r
 | GET | `/ready` | Implementerad: 200 vid databaskontakt, annars 503 |
 | GET | `/v1/players/:region/:gameName/:tagLine` | Implementerad |
 | GET | `/v1/jobs/:jobId` | Implementerad |
-| GET | `/v1/players/:puuid/matches?limit=20` | Planerad |
-| POST | `/v1/players/:puuid/refresh` | Planerad |
+| GET | `/v1/players/:puuid/matches?limit=20` | Implementerad |
+| POST | `/v1/players/:puuid/refresh` | Implementerad |
 
 ## Spelaruppslag
 
@@ -46,7 +46,7 @@ Status är `pending`, `running`, `done` eller `failed`. Vid failed kan en felstr
 
 Avsluta polling vid `done` eller `failed`. Okänt jobb ger 404 `JOB_NOT_FOUND`.
 
-## Matchhistorik — planerad
+## Matchhistorik
 
 `puuid`: 1–128 tecken utan blanksteg eller kontrolltecken. `limit`: heltal 1–100, standard 20. Sortering: `gameStart` fallande, sedan `matchId` fallande. Ingen paginering i första versionen.
 
@@ -65,7 +65,7 @@ Avsluta polling vid `done` eller `failed`. Okänt jobb ger 404 `JOB_NOT_FOUND`.
 
 Alla matchfält krävs och är utan null. `championName` är Data Dragons ID, exempelvis `LeeSin`. `cs` inkluderar neutrala minions. `items` har sju positioner inklusive trinket; 0 betyder tom plats. Tom historik ger `[]`; okänd spelare ger 404 `PLAYER_NOT_FOUND`.
 
-## Refresh — planerad
+## Refresh
 
 Ingen request-body. Samma puuid-regler som för matchhistorik.
 
@@ -80,8 +80,8 @@ Ingen request-body. Samma puuid-regler som för matchhistorik.
 | HTTP | Kod |
 |---|---|
 | 400 | VALIDATION_ERROR |
-| 404 | JOB_NOT_FOUND / NOT_FOUND; PLAYER_NOT_FOUND för planerade spelarendpoints |
-| 429 | REFRESH_RATE_LIMITED (planerad) |
+| 404 | JOB_NOT_FOUND / NOT_FOUND / PLAYER_NOT_FOUND |
+| 429 | REFRESH_RATE_LIMITED |
 | 503 | DATABASE_UNAVAILABLE |
 | 500 | INTERNAL_ERROR |
 

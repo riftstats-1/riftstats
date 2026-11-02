@@ -53,6 +53,12 @@ describe("Riot endpoints and desktop mapping", () => {
     ]);
   });
 
+  it("looks up renamed Riot accounts by PUUID on regional routing", async () => {
+    const result = await client().getAccountByPuuid("eun1", "id/with+symbols");
+    expect(result).toEqual(fixture.account);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://europe.api.riotgames.com/riot/account/v1/accounts/by-puuid/id%2Fwith%2Bsymbols");
+  });
+
   it("maps Riot data to the exact desktop profile and match fields", async () => {
     const riot = client();
     fetchMock.mockResolvedValueOnce(json(fixture.account)).mockResolvedValueOnce(json(fixture.summoner))

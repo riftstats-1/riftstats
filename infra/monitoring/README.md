@@ -107,6 +107,9 @@ Bygg en dashboard med paneler för det vi ska visa på försvaret. Bra PromQL-fr
 När dashboarden är klar: **Share → Export → Save to file** och lägg JSON-filen i
 `infra/monitoring/dashboards/overview.json`, så att den finns i repot.
 
+JSON-filen innehåller även fetcherns status och loggar. Importera den i Grafana
+för att uppdatera dashboarden; API-pipelinen installerar inte dashboarden.
+
 Senare lägger vi till request-metrics från API:t (requests per sekund, latens, felfrekvens) via
 `/metrics` i Fastify och en ServiceMonitor.
 

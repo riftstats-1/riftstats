@@ -47,6 +47,9 @@ export class RiotClient {
   async getSummonerByPuuid(region: string, puuid: string, signal?: AbortSignal) {
     return this.request(platformRoute(region), `/lol/summoner/v4/summoners/by-puuid/${pathSegment(puuid)}`, parseSummoner, signal);
   }
+  async getAccountByPuuid(region: string, puuid: string, signal?: AbortSignal) {
+    return this.request(regionalRoute(region), `/riot/account/v1/accounts/by-puuid/${pathSegment(puuid)}`, parseAccount, signal);
+  }
   async getLeagueEntries(region: string, puuid: string, signal?: AbortSignal) {
     return this.request(platformRoute(region), `/lol/league/v4/entries/by-puuid/${pathSegment(puuid)}`, parseLeagueEntries, signal);
   }
