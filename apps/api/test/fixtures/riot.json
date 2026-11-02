@@ -1,0 +1,20 @@
+{
+  "account": { "puuid": "fixture-puuid", "gameName": "Example", "tagLine": "EUW" },
+  "summoner": { "puuid": "fixture-puuid", "profileIconId": 123, "summonerLevel": 100 },
+  "leagueEntries": [
+    { "queueType": "RANKED_SOLO_5x5", "tier": "GOLD", "rank": "II", "leaguePoints": 50, "wins": 30, "losses": 20 }
+  ],
+  "matchIds": ["EUW1_1234567890"],
+  "match": {
+    "metadata": { "matchId": "EUW1_1234567890", "participants": ["fixture-puuid"] },
+    "info": {
+      "queueId": 420,
+      "gameStartTimestamp": 1793530800000,
+      "gameDuration": 1800,
+      "gameVersion": "26.21.1",
+      "participants": [
+        { "puuid": "fixture-puuid", "championId": 103, "championName": "Ahri", "teamId": 100, "win": true, "kills": 10, "deaths": 2, "assists": 8, "totalMinionsKilled": 190, "neutralMinionsKilled": 10, "item0": 3031, "item1": 3006, "item2": 0, "item3": 0, "item4": 0, "item5": 0, "item6": 3340 }
+      ]
+    }
+  }
+}
