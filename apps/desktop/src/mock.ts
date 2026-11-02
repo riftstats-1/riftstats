@@ -1,6 +1,7 @@
 // Made-up data in the same shape as the API, so the app can be built before the backend is ready.
 import { ApiError } from "./errors";
-import type { Job, LookupResult, MatchSummary, PlayerProfile, Region } from "./types";
+import { ladderScore, rankFromScore } from "./format";
+import type { Job, LookupResult, LpPoint, MatchSummary, PlayerProfile, RankEntry, Region } from "./types";
 
 const CHAMPIONS = [
   "Ahri", "Jinx", "LeeSin", "Thresh", "Yasuo", "Lux",
@@ -74,6 +75,7 @@ export async function lookupPlayer(
     ],
     lastFetched: new Date().toISOString(),
   };
+  profile.ranks[0].history = mockHistory(profile.ranks[0], rand);
   return { kind: "found", profile };
 }
 
@@ -125,4 +127,17 @@ export async function refreshPlayer(puuid: string): Promise<number> {
   const id = nextJobId++;
   jobs.set(id, { key: puuid.replace(/^mock-/, ""), readyAt: Date.now() + 1500 });
   return id;
+}
+
+// A random walk of LP that ends at the player's current rank, one point per ranked game.
+function mockHistory(entry: RankEntry, rand: () => number): LpPoint[] {
+  const points: LpPoint[] = [];
+  let score = ladderScore(entry);
+  let time = Date.now();
+  for (let i = 0; i < 16; i++) {
+    points.unshift({ recordedAt: new Date(time).toISOString(), ...rankFromScore(score) });
+    score -= rand() > 0.45 ? 18 + Math.floor(rand() * 8) : -(16 + Math.floor(rand() * 8));
+    time -= (3 + Math.floor(rand() * 20)) * 3_600_000;
+  }
+  return points;
 }

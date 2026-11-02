@@ -4,8 +4,10 @@ import { Logo } from "./components/Logo";
 import { MatchList } from "./components/MatchList";
 import { ProfileHeader } from "./components/ProfileHeader";
 import { SearchBar } from "./components/SearchBar";
+import { Sidebar } from "./components/Sidebar";
 import { USE_MOCK } from "./config";
 import { useDdragonVersion } from "./ddragon";
+import { topChampions } from "./format";
 import type { MatchSummary, PlayerProfile, Region } from "./types";
 import "./App.css";
 
@@ -114,23 +116,49 @@ export default function App() {
         )}
 
         {view.kind === "loaded" && (
-          <>
-            <ProfileHeader
-              profile={view.profile}
-              matches={view.matches}
-              version={version}
-              refreshing={refreshing}
-              onRefresh={refresh}
-            />
-            {refreshError && (
-              <p className="status status-error" role="alert">
-                {refreshError}
-              </p>
-            )}
-            <MatchList matches={view.matches} version={version} />
-          </>
+          <LoadedView
+            profile={view.profile}
+            matches={view.matches}
+            version={version}
+            refreshing={refreshing}
+            refreshError={refreshError}
+            onRefresh={refresh}
+          />
         )}
       </main>
     </div>
+  );
+}
+
+interface LoadedProps {
+  profile: PlayerProfile;
+  matches: MatchSummary[];
+  version: string | null;
+  refreshing: boolean;
+  refreshError: string | null;
+  onRefresh: () => void;
+}
+
+function LoadedView({ profile, matches, version, refreshing, refreshError, onRefresh }: LoadedProps) {
+  const champions = topChampions(matches);
+  return (
+    <>
+      <ProfileHeader
+        profile={profile}
+        mainChampion={champions[0]?.championName ?? null}
+        version={version}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+      />
+      {refreshError && (
+        <p className="status status-error" role="alert">
+          {refreshError}
+        </p>
+      )}
+      <div className="layout">
+        <Sidebar profile={profile} matches={matches} champions={champions} version={version} />
+        <MatchList matches={matches} version={version} />
+      </div>
+    </>
   );
 }
