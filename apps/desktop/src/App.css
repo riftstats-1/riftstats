@@ -915,3 +915,29 @@ img {
     animation: none;
   }
 }
+
+/* Scrollbar in the Rift theme: thin, no arrows, teal on hover */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--rift-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--rift-line);
+  border: 2px solid var(--rift-deep);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--win);
+}
+
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-corner {
+  display: none;
+  background: transparent;
+}
