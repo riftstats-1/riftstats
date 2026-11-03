@@ -32,12 +32,14 @@ it("permits desktop CORS preflight and excludes unapproved origins", async () =>
   } finally { await app.close(); }
 });
 
-it("omits the development origin in production", async () => {
+it("permits the Tauri dev origin in production but still excludes unapproved origins", async () => {
   vi.stubEnv("NODE_ENV", "production");
   const app = buildApp();
   try {
-    const res = await app.inject({ url: "/health", headers: { origin: "http://localhost:1420" } });
-    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+    const dev = await app.inject({ url: "/health", headers: { origin: "http://localhost:1420" } });
+    expect(dev.headers["access-control-allow-origin"]).toBe("http://localhost:1420");
+    const denied = await app.inject({ url: "/health", headers: { origin: "https://unapproved.example" } });
+    expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
   } finally { await app.close(); }
 });
 
