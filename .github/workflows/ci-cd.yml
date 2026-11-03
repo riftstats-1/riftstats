@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Started by the desktop workflow so the CDN gets the new installer.
+  workflow_dispatch:
 
 # Kör aldrig två deployer samtidigt
 concurrency:
@@ -12,6 +14,7 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/riftstats-1/riftstats-api
+  WEB_IMAGE: ghcr.io/riftstats-1/riftstats-web
   API_URL: https://api.riftstats.se
 
 jobs:
@@ -55,7 +58,7 @@ jobs:
   build:
     name: Build and push image
     needs: test
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,3 +104,78 @@ jobs:
           TARGET: deploy@${{ secrets.SSH_HOST }}
         run: |
           bash infra/scripts/deploy.sh "$TARGET" "$IMAGE:$GITHUB_SHA" "$API_URL"
+
+  build-web:
+    name: Build and push web image
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the latest Windows installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download desktop-latest --pattern RiftStats-setup.exe --pattern latest.json \
+            --dir web/cdn/downloads --clobber \
+            || echo "No desktop release yet; the download page shows 'coming soon'."
+          ls -la web/cdn/downloads
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: true
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:latest
+
+  deploy-web:
+    name: Deploy web and CDN
+    needs: build-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Apply manifest and wait for rollout
+        env:
+          TARGET: deploy@${{ secrets.SSH_HOST }}
+        run: |
+          sed "s|WEB_IMAGE_PLACEHOLDER|${WEB_IMAGE}:${GITHUB_SHA}|" infra/k8s/web.yaml \
+            | ssh -o BatchMode=yes "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
+                kubectl apply -f - &&
+                kubectl -n riftstats rollout status deployment/web --timeout=180s'
+
+      - name: Smoke test
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null https://cdn.riftstats.se/assets/style.css
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null https://riftstats.se/
+          test "$(curl --fail --silent https://riftstats.se/riot.txt)" = "1582bcf0-f5fd-41e8-b54b-3e65fa2557e5"
+
+      - name: Roll back on failure
+        if: failure()
+        env:
+          TARGET: deploy@${{ secrets.SSH_HOST }}
+        run: |
+          ssh -o BatchMode=yes "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
+              kubectl -n riftstats rollout undo deployment/web'

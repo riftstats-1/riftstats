@@ -1,0 +1,74 @@
+name: Desktop release
+
+# Builds the Windows installer when the desktop app changes and publishes it to the
+# GitHub release "desktop-latest". The CI/CD workflow then bakes it into the web image,
+# so it is served from https://cdn.riftstats.se/downloads/RiftStats-setup.exe.
+# Kept separate from CI/CD because the Rust build takes several minutes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the release and upload the installer
+  actions: write  # start CI/CD so the CDN picks up the new installer
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+      - name: Build installer
+        env:
+          # Process env takes priority over the .env files.
+          VITE_USE_MOCK: "false"
+          VITE_API_URL: https://api.riftstats.se
+        run: bun run tauri build --bundles nsis
+
+      - name: Collect installer and metadata
+        run: |
+          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -n 1)
+          mkdir -p out
+          cp "$exe" out/RiftStats-setup.exe
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          size=$(wc -c < out/RiftStats-setup.exe | tr -d ' ')
+          printf '{"version":"%s","size":%s,"published":"%s","commit":"%s"}\n' \
+            "$version" "$size" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" > out/latest.json
+          cat out/latest.json
+
+      - name: Publish to the desktop-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view desktop-latest > /dev/null 2>&1 || \
+            gh release create desktop-latest --title "RiftStats desktop (latest)" \
+              --notes "Built automatically from main. Download: https://riftstats.se"
+          gh release upload desktop-latest out/RiftStats-setup.exe out/latest.json --clobber
+
+      - name: Redeploy the CDN with the new installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci-cd.yml --ref main
