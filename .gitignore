@@ -19,3 +19,7 @@ target/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Installer and metadata are added by the pipeline, never committed
+web/cdn/downloads/*.exe
+web/cdn/downloads/latest.json

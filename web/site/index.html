@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RiftStats</title>
+  <meta name="description" content="A lightweight League of Legends stats app for Windows. Rank, recent form, LP history and match history in a few megabytes.">
+  <link rel="icon" href="https://cdn.riftstats.se/assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Static files are served from our CDN -->
+  <link rel="stylesheet" href="https://cdn.riftstats.se/assets/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">
+      <img src="https://cdn.riftstats.se/assets/logo.svg" alt="" width="28" height="28">
+      RiftStats
+    </a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Your League stats.<br>Without the weight.</h1>
+      <p class="lead">
+        Rank, recent form, LP history and match history in a desktop app of a few megabytes.
+        No ads, no overlays you did not ask for.
+      </p>
+
+      <div class="download">
+        <a id="download" class="button" href="https://cdn.riftstats.se/downloads/RiftStats-setup.exe">
+          Download for Windows
+        </a>
+        <p id="release" class="meta">Windows 10 and 11</p>
+      </div>
+    </section>
+
+    <section class="features" aria-label="Features">
+      <article>
+        <h2>Recent form at a glance</h2>
+        <p>Your last 20 games as one bar strip, with win rate, KDA and the champions you play most.</p>
+      </article>
+      <article>
+        <h2>LP history that follows you</h2>
+        <p>Riot only shows your LP right now. RiftStats saves every change, so you can see where you are heading.</p>
+      </article>
+      <article>
+        <h2>Light on your PC</h2>
+        <p>Built with Tauri and Rust instead of a bundled browser, so it starts fast and leaves room for the game.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer class="legal">
+    <p>
+      RiftStats isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games
+      or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all
+      associated properties are trademarks or registered trademarks of Riot Games, Inc.
+    </p>
+  </footer>
+
+  <script>
+    // Version and size of the latest installer, published by the desktop workflow.
+    fetch("https://cdn.riftstats.se/downloads/latest.json", { cache: "no-cache" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((latest) => {
+        const mb = (latest.size / 1024 / 1024).toFixed(1);
+        const date = new Date(latest.published).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
+        document.getElementById("release").textContent =
+          `Version ${latest.version}, ${mb} MB, released ${date}. Windows 10 and 11.`;
+      })
+      .catch(() => {
+        const link = document.getElementById("download");
+        link.removeAttribute("href");
+        link.setAttribute("aria-disabled", "true");
+        link.textContent = "Download coming soon";
+      });
+  </script>
+</body>
+</html>
