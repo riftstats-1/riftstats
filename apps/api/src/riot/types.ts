@@ -20,9 +20,11 @@ export interface RiotMatch extends Record<string, unknown> {
 }
 
 // These output fields match apps/desktop/src/types.ts on branch desktop.
+export interface LpPoint { recordedAt: string; tier: string; rank: string; lp: number }
 export interface RankEntry {
   queueType: "RANKED_SOLO_5x5" | "RANKED_FLEX_SR";
   tier: string; rank: string; lp: number; wins: number; losses: number;
+  history?: LpPoint[]; // oldest first, only in API responses (from rank_history)
 }
 export interface PlayerProfile extends RiotAccount {
   region: Region; profileIconId: number; summonerLevel: number; ranks: RankEntry[]; lastFetched: string;
