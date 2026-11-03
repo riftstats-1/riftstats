@@ -135,8 +135,10 @@ jobs:
         with:
           context: web
           push: true
+          # Tagged per run, not only per commit: the desktop workflow reruns CI/CD on the same
+          # commit, and an unchanged tag would never roll out the image with the new installer.
           tags: |
-            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}-${{ github.run_id }}
             ${{ env.WEB_IMAGE }}:latest
 
   deploy-web:
@@ -161,7 +163,7 @@ jobs:
         env:
           TARGET: deploy@${{ secrets.SSH_HOST }}
         run: |
-          sed "s|WEB_IMAGE_PLACEHOLDER|${WEB_IMAGE}:${GITHUB_SHA}|" infra/k8s/web.yaml \
+          sed "s|WEB_IMAGE_PLACEHOLDER|${WEB_IMAGE}:${GITHUB_SHA}-${GITHUB_RUN_ID}|" infra/k8s/web.yaml \
             | ssh -o BatchMode=yes "$TARGET" 'export KUBECONFIG=$HOME/.kube/config
                 kubectl apply -f - &&
                 kubectl -n riftstats rollout status deployment/web --timeout=180s'
