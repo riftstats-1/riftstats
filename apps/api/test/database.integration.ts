@@ -75,10 +75,10 @@ test("initial schema is created once across concurrent starts and a restart", as
     "SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY tablename", [schema],
   );
   assert.deepEqual(tables.rows.map((r) => r.tablename), [
-    "fetch_jobs", "match_participants", "matches", "players", "rank_entries", "schema_migrations",
+    "fetch_jobs", "match_participants", "matches", "players", "rank_entries", "rank_history", "schema_migrations",
   ]);
   const original = await database.query("SELECT * FROM schema_migrations");
-  assert.equal(original.rowCount, 3);
+  assert.equal(original.rowCount, 4);
   await database.end();
   database = new pg.Pool({ connectionString, options: `-c search_path=${schema}`, connectionTimeoutMillis: 2_000 });
   await runMigrations(database);
@@ -193,8 +193,36 @@ test("lookup proceeds from 202 through done to the desktop profile shape", async
     const body = profile.json();
     assert.deepEqual(Object.keys(body).sort(), ["puuid", "gameName", "tagLine", "region", "profileIconId", "summonerLevel", "ranks", "lastFetched"].sort());
     assert.equal(body.profileIconId, 123);
-    assert.deepEqual(body.ranks, [{ queueType: "RANKED_SOLO_5x5", tier: "GOLD", rank: "II", lp: 50, wins: 30, losses: 20 }]);
+    const [{ history, ...rank }] = body.ranks;
+    assert.deepEqual(rank, { queueType: "RANKED_SOLO_5x5", tier: "GOLD", rank: "II", lp: 50, wins: 30, losses: 20 });
+    assert.equal(history.length, 1);
+    assert.deepEqual({ ...history[0], recordedAt: undefined }, { recordedAt: undefined, tier: "GOLD", rank: "II", lp: 50 });
+    assert.ok(Number.isFinite(Date.parse(history[0].recordedAt)));
     assert.ok(Number.isFinite(Date.parse(body.lastFetched)));
+  } finally { await app.close(); }
+});
+
+test("rank history keeps only changes and the API returns them oldest first", async () => {
+  await runMigrations(database);
+  const lookupWithLp = async (lp: number) => {
+    await enqueueLookup(database, { region: "euw1", gameName: "Example", tagLine: "EUW" });
+    await processQueued({
+      ...mockRiot(),
+      getLeagueEntries: async () => [{ ...fixture.leagueEntries[0], leaguePoints: lp }],
+    });
+  };
+  await lookupWithLp(50);
+  await lookupWithLp(50); // unchanged rank: no new snapshot
+  await lookupWithLp(68);
+  const rows = await database.query("SELECT lp FROM rank_history ORDER BY recorded_at, id");
+  assert.deepEqual(rows.rows.map((r) => r.lp), [50, 68]);
+
+  const app = buildApp({}, database);
+  try {
+    const body = (await app.inject({ url: "/v1/players/euw1/Example/EUW" })).json();
+    const history = body.ranks[0].history;
+    assert.deepEqual(history.map((p: { lp: number }) => p.lp), [50, 68]);
+    assert.ok(Date.parse(history[0].recordedAt) <= Date.parse(history[1].recordedAt));
   } finally { await app.close(); }
 });
 
@@ -286,6 +314,7 @@ test("failed profile writes roll back both profile and rank data", async () => {
   } finally { client.release(); }
   assert.equal((await database.query("SELECT * FROM players")).rowCount, 0);
   assert.equal((await database.query("SELECT * FROM rank_entries")).rowCount, 0);
+  assert.equal((await database.query("SELECT * FROM rank_history")).rowCount, 0);
   assert.equal((await database.query("SELECT status FROM fetch_jobs WHERE id=$1", [id])).rows[0].status, "failed");
 });
 
@@ -543,7 +572,7 @@ test("a failed participant write rolls back new matches, profile and ranks toget
   const broken = sampleMatch();
   broken.info.participants.push({ ...broken.info.participants[0] });
   await processQueued({ ...mockRiot(), getMatch: async () => broken });
-  for (const table of ["players", "rank_entries", "matches", "match_participants"]) {
+  for (const table of ["players", "rank_entries", "rank_history", "matches", "match_participants"]) {
     assert.equal((await database.query(`SELECT * FROM ${table}`)).rowCount, 0);
   }
   assert.equal((await database.query("SELECT status FROM fetch_jobs")).rows[0].status, "failed");
