@@ -34,9 +34,9 @@ export function buildApp(
   });
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: { code: "NOT_FOUND", message: "Resursen hittades inte" } }));
 
-  if (mode === "api") {
+    if (mode === "api") {
     app.register(cors, {
-      origin: ["tauri://localhost", "http://tauri.localhost", ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:1420"])],
+      origin: ["tauri://localhost", "http://tauri.localhost", "http://localhost:1420"],
       methods: ["GET", "POST", "OPTIONS"],
     });
     registerLookupRoutes(app, database);
