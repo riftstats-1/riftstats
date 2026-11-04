@@ -1,4 +1,4 @@
-# RiftStats
+# RiftStats 
 
 En lightweight statistikapp för League of Legends, i stil med Mobalytics och Blitz. Sök på ett Riot ID och se rank, matchhistorik och champion-statistik.
 
